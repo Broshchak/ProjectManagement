@@ -1,0 +1,22 @@
+<UserControl x:Class="WpfClient.Views.ProductsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                <Button Content="Додати товар" Padding="14,8" Margin="0,0,8,0" />
+                <Button Content="Редагувати" Padding="14,8" Margin="0,0,8,0" />
+                <Button Content="Змінити залишок" Padding="14,8" />
+            </StackPanel>
+
+            <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Назва" Binding="{Binding Name}" Width="*" />
+                    <DataGridTextColumn Header="Категорія" Binding="{Binding Category}" Width="180" />
+                    <DataGridTextColumn Header="Ціна" Binding="{Binding Price}" Width="120" />
+                    <DataGridTextColumn Header="Залишок" Binding="{Binding Quantity}" Width="120" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </Border>
+</UserControl>

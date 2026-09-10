@@ -1,0 +1,21 @@
+<UserControl x:Class="WpfClient.Views.UsersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                <Button Content="Додати користувача" Padding="14,8" Margin="0,0,8,0" />
+                <Button Content="Змінити роль" Padding="14,8" />
+            </StackPanel>
+
+            <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Логін" Binding="{Binding Login}" Width="160" />
+                    <DataGridTextColumn Header="ПІБ" Binding="{Binding FullName}" Width="*" />
+                    <DataGridTextColumn Header="Роль" Binding="{Binding Role}" Width="160" />
+                    <DataGridCheckBoxColumn Header="Активний" Binding="{Binding IsActive}" Width="120" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </Border>
+</UserControl>
