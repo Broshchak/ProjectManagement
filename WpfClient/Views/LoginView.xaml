@@ -35,6 +35,7 @@
                           DisplayMemberPath="DisplayName"
                           SelectionChanged="UserSelection_Changed"
                           MinHeight="36"
+                          VerticalContentAlignment="Center"
                           Margin="0,0,0,16" />
 
                 <TextBlock Text="Пароль"
