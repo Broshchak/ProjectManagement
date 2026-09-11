@@ -4,9 +4,17 @@
     <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
         <DockPanel>
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Додати товар" Padding="14,8" Margin="0,0,8,0" />
-                <Button Content="Редагувати" Padding="14,8" Margin="0,0,8,0" />
-                <Button Content="Змінити залишок" Padding="14,8" />
+                <Button Content="Додати товар"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Visibility="{Binding CanManageProducts, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Margin="0,0,8,0" />
+                <Button Content="Редагувати"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Visibility="{Binding CanManageProducts, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Margin="0,0,8,0" />
+                <Button Content="Змінити залишок"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Visibility="{Binding CanManageProducts, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </StackPanel>
 
             <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">

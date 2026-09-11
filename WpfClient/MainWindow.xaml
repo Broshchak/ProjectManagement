@@ -3,9 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:converters="clr-namespace:WpfClient.Converters"
         xmlns:viewModels="clr-namespace:WpfClient.ViewModels"
+        xmlns:views="clr-namespace:WpfClient.Views"
         mc:Ignorable="d"
-        Title="Orders Management"
+        Title="Керування замовленнями"
         MinHeight="640"
         MinWidth="980"
         Height="720"
@@ -18,6 +20,9 @@
     </Window.DataContext>
 
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
+
         <Style x:Key="NavigationButtonStyle" TargetType="Button">
             <Setter Property="Margin" Value="0,0,0,8" />
             <Setter Property="Padding" Value="14,11" />
@@ -58,6 +63,9 @@
     </Window.Resources>
 
     <Grid>
+        <views:LoginView Visibility="{Binding IsAuthenticated, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+        <Grid Visibility="{Binding IsAuthenticated, Converter={StaticResource BooleanToVisibilityConverter}}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240" />
             <ColumnDefinition Width="*" />
@@ -65,16 +73,18 @@
 
         <Border Grid.Column="0" Background="#17202B">
             <DockPanel Margin="18">
-                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,28">
-                    <TextBlock Text="Orders"
-                               Foreground="#FFFFFF"
-                               FontSize="26"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="WebAPI + WPF"
-                               Foreground="#93A4B8"
-                               FontSize="13"
-                               Margin="0,4,0,0" />
-                </StackPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <Button Command="{Binding SignOutCommand}"
+                            Content="Вийти"
+                            Width="78"
+                            Height="32"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            Background="#263241"
+                            Foreground="#FFFFFF"
+                            BorderBrush="#3B4754"
+                            Cursor="Hand" />
+                </Grid>
 
                 <ItemsControl ItemsSource="{Binding NavigationItems}">
                     <ItemsControl.ItemTemplate>
@@ -95,6 +105,7 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
             </DockPanel>
         </Border>
 
@@ -109,7 +120,7 @@
                     BorderBrush="#D9E1EA"
                     BorderThickness="0,0,0,1"
                     Padding="28,20">
-                <DockPanel>
+                <DockPanel LastChildFill="False">
                     <StackPanel>
                         <TextBlock Text="{Binding CurrentTitle}"
                                    FontSize="25"
@@ -123,12 +134,20 @@
 
                     <Border DockPanel.Dock="Right"
                             Background="#EAF2FF"
-                            Padding="12,8"
+                            Padding="12,7"
                             CornerRadius="6"
-                            VerticalAlignment="Center">
-                        <TextBlock Text="API не підключено"
-                                   Foreground="#255C99"
-                                   FontWeight="SemiBold" />
+                            VerticalAlignment="Center"
+                            Width="250">
+                        <StackPanel>
+                            <TextBlock Text="{Binding CurrentUserName}"
+                                       Foreground="#255C99"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding CurrentRoleName}"
+                                       Foreground="#687789"
+                                       FontSize="12"
+                                       HorizontalAlignment="Right" />
+                        </StackPanel>
                     </Border>
                 </DockPanel>
             </Border>
@@ -136,6 +155,7 @@
             <Border Grid.Row="1" Padding="28">
                 <ContentControl Content="{Binding CurrentView}" />
             </Border>
+        </Grid>
         </Grid>
     </Grid>
 </Window>

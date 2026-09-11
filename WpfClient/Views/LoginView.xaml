@@ -1,0 +1,83 @@
+<UserControl x:Class="WpfClient.Views.LoginView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#F5F7FA">
+        <Border Width="430"
+                Padding="32"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="8">
+            <StackPanel>
+                <Image Source="pack://application:,,,/Assets/app-icon.png"
+                       Width="72"
+                       Height="72"
+                       HorizontalAlignment="Left"
+                       Margin="0,0,0,18" />
+
+                <TextBlock Text="Вхід до системи"
+                           FontSize="26"
+                           FontWeight="SemiBold"
+                           Foreground="#17202B" />
+                <TextBlock Text="Оберіть тестового користувача і введіть пароль."
+                           TextWrapping="Wrap"
+                           Foreground="#687789"
+                           Margin="0,6,0,24" />
+
+                <TextBlock Text="Користувач"
+                           Foreground="#3B4754"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6" />
+                <ComboBox ItemsSource="{Binding TestUsers}"
+                          SelectedItem="{Binding SelectedLoginUser, Mode=TwoWay}"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="UserSelection_Changed"
+                          MinHeight="36"
+                          Margin="0,0,0,16" />
+
+                <TextBlock Text="Пароль"
+                           Foreground="#3B4754"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6" />
+                <PasswordBox x:Name="PasswordInput"
+                             MinHeight="36"
+                             Padding="8"
+                             KeyDown="PasswordInput_KeyDown"
+                             Margin="0,0,0,10" />
+
+                <Border Background="#FDECEC"
+                        BorderBrush="#F5B5B5"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,0,0,14">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasLoginError}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="{Binding LoginError}"
+                               Foreground="#9B1C1C"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <Button Content="Увійти"
+                        Click="SignIn_Click"
+                        Style="{StaticResource ActionButtonStyle}" />
+
+                <TextBlock Text="Тестові паролі збігаються з логінами: admin, manager, viewer, director."
+                           Foreground="#687789"
+                           TextWrapping="Wrap"
+                           FontSize="12"
+                           Margin="0,18,0,0" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
