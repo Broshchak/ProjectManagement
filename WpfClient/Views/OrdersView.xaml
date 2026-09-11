@@ -4,8 +4,11 @@
     <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
         <DockPanel>
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Створити замовлення" Padding="14,8" Margin="0,0,8,0" />
-                <Button Content="Оновити" Padding="14,8" />
+                <Button Content="Створити замовлення"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Margin="0,0,8,0" />
+                <Button Content="Оновити" Style="{StaticResource ActionButtonStyle}" />
             </StackPanel>
 
             <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">

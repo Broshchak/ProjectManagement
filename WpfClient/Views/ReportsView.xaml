@@ -8,7 +8,10 @@
                        TextWrapping="Wrap"
                        Foreground="#687789"
                        Margin="0,8,0,18" />
-            <Button Content="Сформувати звіт" Padding="14,8" HorizontalAlignment="Left" />
+            <Button Content="Сформувати звіт"
+                    Style="{StaticResource ActionButtonStyle}"
+                    Visibility="{Binding CanViewReports, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    HorizontalAlignment="Left" />
         </StackPanel>
     </Border>
 </UserControl>

@@ -4,8 +4,13 @@
     <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
         <DockPanel>
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Додати користувача" Padding="14,8" Margin="0,0,8,0" />
-                <Button Content="Змінити роль" Padding="14,8" />
+                <Button Content="Додати користувача"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Margin="0,0,8,0" />
+                <Button Content="Змінити роль"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </StackPanel>
 
             <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
