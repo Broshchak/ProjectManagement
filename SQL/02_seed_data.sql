@@ -98,7 +98,7 @@ SELECT
     u.id
 FROM order_statuses os
 JOIN customers c ON c.email = 'customer@example.com'
-LEFT JOIN app_users u ON u.login = 'manager'
+JOIN app_users u ON u.login = 'admin'
 WHERE os.code = 'NewOrder'
 ON CONFLICT (order_number) DO NOTHING;
 
@@ -113,7 +113,7 @@ ON CONFLICT (order_id, product_id) DO NOTHING;
 INSERT INTO order_status_history (order_id, previous_status_id, new_status_id, changed_by_user_id, comment)
 SELECT o.id, NULL, o.status_id, u.id, 'Initial status'
 FROM orders o
-LEFT JOIN app_users u ON u.login = 'manager'
+JOIN app_users u ON u.login = 'admin'
 WHERE o.order_number = 'ORD-0001'
   AND NOT EXISTS (
       SELECT 1
