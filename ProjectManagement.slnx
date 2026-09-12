@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Domain/Domain.csproj" Id="5347b54b-a851-4c13-b1b9-c16ff852e2f2" />
   <Project Path="WebApi/WebApi.csproj" />
   <Project Path="WpfClient/WpfClient.csproj" />
 </Solution>
