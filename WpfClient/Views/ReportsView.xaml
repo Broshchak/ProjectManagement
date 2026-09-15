@@ -8,7 +8,13 @@
                        TextWrapping="Wrap"
                        Foreground="#687789"
                        Margin="0,8,0,18" />
+            <TextBlock Text="{Binding Summary.TotalAmountText, StringFormat=Загальна сума замовлень: {0}}"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Foreground="#17202B"
+                       Margin="0,0,0,18" />
             <Button Content="Сформувати звіт"
+                    Command="{Binding RefreshDataCommand}"
                     Style="{StaticResource ActionButtonStyle}"
                     Visibility="{Binding CanViewReports, Converter={StaticResource BooleanToVisibilityConverter}}"
                     HorizontalAlignment="Left" />

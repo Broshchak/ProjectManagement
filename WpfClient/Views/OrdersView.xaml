@@ -8,15 +8,20 @@
                         Style="{StaticResource ActionButtonStyle}"
                         Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
                         Margin="0,0,8,0" />
-                <Button Content="Оновити" Style="{StaticResource ActionButtonStyle}" />
+                <Button Content="Оновити"
+                        Command="{Binding RefreshDataCommand}"
+                        Style="{StaticResource ActionButtonStyle}" />
             </StackPanel>
 
-            <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+            <DataGrid ItemsSource="{Binding Orders}"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      IsReadOnly="True">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Номер" Binding="{Binding Number}" Width="120" />
                     <DataGridTextColumn Header="Клієнт" Binding="{Binding Customer}" Width="*" />
                     <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="150" />
-                    <DataGridTextColumn Header="Сума" Binding="{Binding Total}" Width="120" />
+                    <DataGridTextColumn Header="Сума" Binding="{Binding TotalText}" Width="120" />
                 </DataGrid.Columns>
             </DataGrid>
         </DockPanel>

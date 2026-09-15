@@ -3,23 +3,33 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls;
 using System.Windows.Input;
+using WpfClient.Models;
+using WpfClient.Services;
 using WpfClient.Views;
 
 namespace WpfClient.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    private readonly IOrdersApiClient _apiClient;
+    private readonly ApiClientSettings _apiSettings;
     private readonly IReadOnlyList<NavigationItem> _allNavigationItems;
     private NavigationItem _selectedItem;
     private UserControl _currentView;
     private TestUser _selectedLoginUser;
+    private ReportSummary _summary = new();
     private bool _isAuthenticated;
+    private bool _isLoading;
     private string? _loginError;
+    private string? _apiErrorMessage;
     private string? _currentUserName;
     private string? _currentRoleName;
 
     public MainViewModel()
     {
+        _apiSettings = ApiClientSettings.Load();
+        _apiClient = OrdersApiClientFactory.Create(_apiSettings);
+
         TestUsers = new ObservableCollection<TestUser>
         {
             new("admin", "System Administrator", "Admin", "admin"),
@@ -48,6 +58,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         });
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
+        RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
 
         _selectedLoginUser = TestUsers[0];
         _selectedItem = _allNavigationItems[0];
@@ -58,11 +69,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<NavigationItem> NavigationItems { get; }
 
+    public ObservableCollection<OrderListItem> Orders { get; } = [];
+
+    public ObservableCollection<ProductListItem> Products { get; } = [];
+
     public ObservableCollection<TestUser> TestUsers { get; }
 
     public ICommand NavigateCommand { get; }
 
     public ICommand SignOutCommand { get; }
+
+    public ICommand RefreshDataCommand { get; }
 
     public TestUser SelectedLoginUser
     {
@@ -95,6 +112,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set
+        {
+            if (_isLoading == value)
+            {
+                return;
+            }
+
+            _isLoading = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LoadingStatusText));
+        }
+    }
+
     public string? LoginError
     {
         get => _loginError;
@@ -112,6 +145,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public bool HasLoginError => !string.IsNullOrWhiteSpace(LoginError);
+
+    public string? ApiErrorMessage
+    {
+        get => _apiErrorMessage;
+        private set
+        {
+            if (_apiErrorMessage == value)
+            {
+                return;
+            }
+
+            _apiErrorMessage = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasApiError));
+        }
+    }
+
+    public bool HasApiError => !string.IsNullOrWhiteSpace(ApiErrorMessage);
+
+    public string ApiModeText => _apiSettings.UseMockData
+        ? "Mock-дані"
+        : $"API: {_apiSettings.BaseUrl}";
+
+    public string LoadingStatusText => IsLoading
+        ? "Завантаження даних..."
+        : ApiModeText;
+
+    public ReportSummary Summary
+    {
+        get => _summary;
+        private set
+        {
+            _summary = value;
+            OnPropertyChanged();
+        }
+    }
 
     public string? CurrentUserName
     {
@@ -206,6 +275,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshNavigationItems();
         SelectedItem = NavigationItems[0];
         OnPermissionPropertiesChanged();
+        _ = LoadClientDataAsync();
 
         return true;
     }
@@ -216,6 +286,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CurrentUserName = null;
         CurrentRoleName = null;
         LoginError = null;
+        ApiErrorMessage = null;
+        Orders.Clear();
+        Products.Clear();
+        Summary = new ReportSummary();
         NavigationItems.Clear();
         SelectedItem = _allNavigationItems[0];
         OnPermissionPropertiesChanged();
@@ -237,6 +311,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanManageProducts));
         OnPropertyChanged(nameof(CanManageUsers));
         OnPropertyChanged(nameof(CanViewReports));
+    }
+
+    private async Task LoadClientDataAsync()
+    {
+        IsLoading = true;
+        ApiErrorMessage = null;
+
+        try
+        {
+            IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
+            IReadOnlyList<ProductListItem> products = await _apiClient.GetProductsAsync();
+            ReportSummary summary = await _apiClient.GetReportSummaryAsync();
+
+            ReplaceCollection(Orders, orders);
+            ReplaceCollection(Products, products);
+            Summary = summary;
+        }
+        catch (Exception exception)
+        {
+            ApiErrorMessage = $"Не вдалося отримати дані. Перевірте підключення до API або увімкніть mock-дані. Деталі: {exception.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> source)
+    {
+        target.Clear();
+
+        foreach (T item in source)
+        {
+            target.Add(item);
+        }
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
