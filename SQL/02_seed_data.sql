@@ -102,11 +102,12 @@ JOIN app_users u ON u.login = 'admin'
 WHERE os.code = 'NewOrder'
 ON CONFLICT (order_number) DO NOTHING;
 
-INSERT INTO order_items (order_id, product_id, quantity)
-SELECT o.id, p.id, 2
+INSERT INTO order_items (order_id, product_id, quantity, unit_price)
+SELECT o.id, p.id, 2, pp.price
 FROM orders o
 JOIN product_categories c ON c.name = 'Office supplies'
 JOIN products p ON p.category_id = c.id AND p.name = 'Notebook A5'
+JOIN product_prices pp ON pp.product_id = p.id
 WHERE o.order_number = 'ORD-0001'
 ON CONFLICT (order_id, product_id) DO NOTHING;
 

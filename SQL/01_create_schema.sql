@@ -106,8 +106,10 @@ CREATE TABLE IF NOT EXISTS order_items (
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
     quantity INTEGER NOT NULL,
+    unit_price NUMERIC(12, 2) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_order_items_unit_price CHECK (unit_price > 0),
     CONSTRAINT ck_order_items_quantity CHECK (quantity > 0),
     CONSTRAINT uq_order_items_order_product UNIQUE (order_id, product_id)
 );
@@ -167,9 +169,9 @@ SELECT
     oi.product_id,
     p.name AS product_name,
     oi.quantity,
-    pp.price AS unit_price,
+    oi.unit_price,
     pp.currency_code,
-    oi.quantity * pp.price AS line_total
+    oi.quantity * oi.unit_price AS line_total
 FROM order_items oi
 JOIN products p ON p.id = oi.product_id
 LEFT JOIN product_prices pp ON pp.product_id = p.id;
