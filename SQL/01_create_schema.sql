@@ -67,9 +67,11 @@ CREATE TABLE IF NOT EXISTS products (
     category_id INTEGER NOT NULL REFERENCES product_categories(id) ON DELETE RESTRICT,
     name VARCHAR(160) NOT NULL,
     description TEXT,
+    available_quantity INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_products_available_quantity CHECK (available_quantity >= 0),
     CONSTRAINT uq_products_category_name UNIQUE (category_id, name)
 );
 
@@ -151,12 +153,13 @@ SELECT
     p.id,
     p.name,
     p.description,
+    p.available_quantity,
     p.is_active,
     c.id AS category_id,
     c.name AS category_name,
     pp.price,
     pp.currency_code,
-    ps.quantity AS stock_quantity
+    COALESCE(ps.quantity, p.available_quantity) AS stock_quantity
 FROM products p
 LEFT JOIN product_categories c ON c.id = p.category_id
 LEFT JOIN product_prices pp ON pp.product_id = p.id
