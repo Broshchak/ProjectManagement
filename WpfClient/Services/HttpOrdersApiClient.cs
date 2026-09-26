@@ -12,6 +12,11 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             ?? [];
     }
 
+    public async Task<OrderDetail?> GetOrderDetailsAsync(string orderNumber, CancellationToken cancellationToken = default)
+    {
+        return await httpClient.GetFromJsonAsync<OrderDetail>($"api/orders/{Uri.EscapeDataString(orderNumber)}", cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
         return await httpClient.GetFromJsonAsync<List<ProductListItem>>("api/products", cancellationToken)
