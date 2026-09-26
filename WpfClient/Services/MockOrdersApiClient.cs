@@ -15,12 +15,12 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
 
     private readonly IReadOnlyList<ProductListItem> _products =
     [
-        new() { Name = "Notebook A5", Category = "Office supplies", Price = 45m, Quantity = 120 },
-        new() { Name = "Blue pen", Category = "Office supplies", Price = 12.5m, Quantity = 300 },
-        new() { Name = "Folder", Category = "Office supplies", Price = 18m, Quantity = 80 },
-        new() { Name = "USB flash drive 32GB", Category = "Electronics", Price = 220m, Quantity = 35 },
-        new() { Name = "Wireless mouse", Category = "Electronics", Price = 420m, Quantity = 25 },
-        new() { Name = "Office chair", Category = "Furniture", Price = 2400m, Quantity = 10 }
+        new() { Name = "Notebook A5", Category = "Office supplies", Price = 45m, Quantity = 120, IsActive = true },
+        new() { Name = "Blue pen", Category = "Office supplies", Price = 12.5m, Quantity = 300, IsActive = true },
+        new() { Name = "Folder", Category = "Office supplies", Price = 18m, Quantity = 80, IsActive = true },
+        new() { Name = "USB flash drive 32GB", Category = "Electronics", Price = 220m, Quantity = 35, IsActive = true },
+        new() { Name = "Wireless mouse", Category = "Electronics", Price = 420m, Quantity = 25, IsActive = true },
+        new() { Name = "Office chair", Category = "Furniture", Price = 2400m, Quantity = 10, IsActive = false }
     ];
 
     public async Task<IReadOnlyList<OrderListItem>> GetOrdersAsync(CancellationToken cancellationToken = default)

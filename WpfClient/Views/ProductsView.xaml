@@ -1,33 +1,128 @@
 <UserControl x:Class="WpfClient.Views.ProductsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
-        <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Додати товар"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageProducts, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        Margin="0,0,8,0" />
-                <Button Content="Редагувати"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageProducts, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        Margin="0,0,8,0" />
-                <Button Content="Змінити залишок"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageProducts, Converter={StaticResource BooleanToVisibilityConverter}}" />
-            </StackPanel>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
-            <DataGrid ItemsSource="{Binding Products}"
-                      AutoGenerateColumns="False"
-                      CanUserAddRows="False"
-                      IsReadOnly="True">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Назва" Binding="{Binding Name}" Width="*" />
-                    <DataGridTextColumn Header="Категорія" Binding="{Binding Category}" Width="180" />
-                    <DataGridTextColumn Header="Ціна" Binding="{Binding PriceText}" Width="120" />
-                    <DataGridTextColumn Header="Залишок" Binding="{Binding Quantity}" Width="120" />
-                </DataGrid.Columns>
-            </DataGrid>
-        </DockPanel>
-    </Border>
+        <Border Grid.Column="0"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="20"
+                Margin="0,0,0,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                    <Button Content="Додати товар"
+                            Command="{Binding BeginAddProductCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Редагувати"
+                            Command="{Binding BeginEditProductCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Оновити"
+                            Command="{Binding RefreshDataCommand}"
+                            Style="{StaticResource ActionButtonStyle}" />
+                </StackPanel>
+
+                <DataGrid ItemsSource="{Binding Products}"
+                          SelectedItem="{Binding SelectedProduct, Mode=TwoWay}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Назва" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="Категорія" Binding="{Binding Category}" Width="170" />
+                        <DataGridTextColumn Header="Ціна" Binding="{Binding PriceText}" Width="120" />
+                        <DataGridTextColumn Header="Кількість" Binding="{Binding Quantity}" Width="90" />
+                        <DataGridTextColumn Header="Стан" Binding="{Binding ActiveText}" Width="110" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Column="1"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="20"
+                Width="320"
+                Margin="16,0,0,0"
+                Visibility="{Binding IsProductEditorOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel>
+                <TextBlock Text="{Binding ProductEditorTitle}"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           Foreground="#17202B"
+                           Margin="0,0,0,16" />
+
+                <TextBlock Text="Назва" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBox Text="{Binding ProductName, UpdateSourceTrigger=PropertyChanged}"
+                         IsEnabled="{Binding IsProductEditorOpen}"
+                         MinHeight="34"
+                         Padding="8"
+                         Margin="0,0,0,12" />
+
+                <TextBlock Text="Категорія" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBox Text="{Binding ProductCategory, UpdateSourceTrigger=PropertyChanged}"
+                         IsEnabled="{Binding IsProductEditorOpen}"
+                         MinHeight="34"
+                         Padding="8"
+                         Margin="0,0,0,12" />
+
+                <TextBlock Text="Ціна" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBox Text="{Binding ProductPrice, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                         IsEnabled="{Binding IsProductEditorOpen}"
+                         MinHeight="34"
+                         Padding="8"
+                         Margin="0,0,0,12" />
+
+                <TextBlock Text="Кількість" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBox Text="{Binding ProductQuantity, UpdateSourceTrigger=PropertyChanged}"
+                         IsEnabled="{Binding IsProductEditorOpen}"
+                         MinHeight="34"
+                         Padding="8"
+                         Margin="0,0,0,12" />
+
+                <CheckBox Content="Товар активний"
+                          IsChecked="{Binding ProductIsActive}"
+                          IsEnabled="{Binding IsProductEditorOpen}"
+                          Margin="0,0,0,14" />
+
+                <Border Background="#FDECEC"
+                        BorderBrush="#F5B5B5"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,0,0,14"
+                        Visibility="{Binding HasProductEditorError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="{Binding ProductEditorError}"
+                               Foreground="#9B1C1C"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Зберегти"
+                            Command="{Binding SaveProductCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Скасувати"
+                            Command="{Binding CancelProductEditCommand}"
+                            Style="{StaticResource ActionButtonStyle}" />
+                </StackPanel>
+
+                <TextBlock Text="Додавання та редагування доступні тільки адміністратору."
+                           TextWrapping="Wrap"
+                           Foreground="#687789"
+                           FontSize="12"
+                           Margin="0,18,0,0" />
+            </StackPanel>
+        </Border>
+    </Grid>
 </UserControl>
