@@ -209,6 +209,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _currentRoleName = value;
             OnPropertyChanged();
+            OnPermissionPropertiesChanged();
+
+            if (IsAuthenticated)
+            {
+                RefreshNavigationItems();
+
+                if (!NavigationItems.Contains(SelectedItem) && NavigationItems.Count > 0)
+                {
+                    SelectedItem = NavigationItems[0];
+                }
+            }
         }
     }
 
@@ -250,7 +261,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool CanManageProducts => CurrentRoleName is "Admin" or "Director";
 
-    public bool CanManageUsers => CurrentRoleName is "Admin" or "Director";
+    public bool CanManageUsers => CurrentRoleName is "Admin";
 
     public bool CanViewReports => CurrentRoleName is "Admin" or "Viewer" or "Director";
 
@@ -268,13 +279,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        CurrentUserName = SelectedLoginUser.FullName;
-        CurrentRoleName = SelectedLoginUser.RoleName;
         LoginError = null;
         IsAuthenticated = true;
-        RefreshNavigationItems();
+        CurrentUserName = SelectedLoginUser.FullName;
+        CurrentRoleName = SelectedLoginUser.RoleName;
         SelectedItem = NavigationItems[0];
-        OnPermissionPropertiesChanged();
         _ = LoadClientDataAsync();
 
         return true;
@@ -292,7 +301,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Summary = new ReportSummary();
         NavigationItems.Clear();
         SelectedItem = _allNavigationItems[0];
-        OnPermissionPropertiesChanged();
     }
 
     private void RefreshNavigationItems()
