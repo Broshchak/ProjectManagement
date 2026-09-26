@@ -67,24 +67,6 @@ JOIN product_categories c ON c.name = v.category_name
 JOIN products p ON p.category_id = c.id AND p.name = v.product_name
 ON CONFLICT (product_id) DO NOTHING;
 
-INSERT INTO product_stocks (product_id, quantity)
-SELECT p.id, v.quantity
-FROM (
-    VALUES
-        ('Office supplies', 'Notebook A5', 120),
-        ('Office supplies', 'Blue pen', 300),
-        ('Office supplies', 'Folder', 80),
-        ('Electronics', 'USB flash drive 32GB', 35),
-        ('Electronics', 'Wireless mouse', 25),
-        ('Furniture', 'Office chair', 10)
-) AS v(category_name, product_name, quantity)
-JOIN product_categories c ON c.name = v.category_name
-JOIN products p ON p.category_id = c.id AND p.name = v.product_name
-ON CONFLICT (product_id) DO UPDATE
-SET
-    quantity = EXCLUDED.quantity,
-    updated_at = NOW();
-
 INSERT INTO customers (full_name, phone, email, address)
 VALUES ('Demo Customer', '+380000000000', 'customer@example.com', 'Lviv, Demo street 1')
 ON CONFLICT (email) DO NOTHING;

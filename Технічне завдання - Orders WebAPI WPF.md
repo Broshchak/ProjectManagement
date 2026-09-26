@@ -179,7 +179,7 @@
 - дату створення;
 - дату останнього оновлення.
 
-Поточна ціна зберігається в окремій таблиці `product_prices`. Доступна кількість є полем товару, а таблиця `product_stocks` використовується для окремого обліку поточного залишку та сумісності зі stock-сценаріями.
+Поточна ціна зберігається в окремій таблиці `product_prices`. Доступна кількість зберігається безпосередньо в полі `products.available_quantity`, щоб у системі було одне джерело правди для залишку товару.
 
 ### ProductPrice
 
@@ -190,15 +190,6 @@
 - ціну;
 - код валюти;
 - дату створення.
-
-### ProductStock
-
-Залишок товару містить:
-
-- унікальний ідентифікатор;
-- посилання на товар;
-- кількість;
-- дату останнього оновлення.
 
 ### OrderItem
 
@@ -250,7 +241,6 @@
 | `product_categories` | Категорії товарів | `id`, `name`, `description`, `is_active`, `created_at`, `updated_at` |
 | `products` | Каталог товарів | `id`, `category_id`, `name`, `description`, `available_quantity`, `is_active`, `created_at`, `updated_at` |
 | `product_prices` | Поточні ціни товарів | `id`, `product_id`, `price`, `currency_code`, `created_at` |
-| `product_stocks` | Поточні залишки товарів | `id`, `product_id`, `quantity`, `updated_at` |
 | `orders` | Замовлення | `id`, `order_number`, `status_id`, `customer_id`, `created_by_user_id`, `comment`, `created_at`, `updated_at` |
 | `order_items` | Позиції замовлень | `id`, `order_id`, `product_id`, `quantity`, `unit_price`, `created_at`, `updated_at` |
 | `order_status_history` | Історія зміни статусів | `id`, `order_id`, `previous_status_id`, `new_status_id`, `changed_by_user_id`, `changed_at`, `comment` |
@@ -471,7 +461,7 @@
 
 До складу епіку входить:
 
-- проєктування сутностей `Role`, `User`, `Customer`, `OrderStatus`, `Order`, `ProductCategory`, `Product`, `ProductPrice`, `ProductStock`, `OrderItem`, `OrderStatusHistory`, `TelegramAllowedUser`;
+- проєктування сутностей `Role`, `User`, `Customer`, `OrderStatus`, `Order`, `ProductCategory`, `Product`, `ProductPrice`, `OrderItem`, `OrderStatusHistory`, `TelegramAllowedUser`;
 - визначення станів замовлення `NewOrder`, `Registered`, `Granted`, `Shipped`, `Invoiced`, `Cancelled`;
 - реалізація правил дозволених і заборонених переходів між станами;
 - реалізація обмежень для редагування замовлення залежно від його стану;
