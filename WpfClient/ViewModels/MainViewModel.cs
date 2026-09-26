@@ -17,13 +17,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private NavigationItem _selectedItem;
     private UserControl _currentView;
     private TestUser _selectedLoginUser;
+    private ProductListItem? _selectedProduct;
     private ReportSummary _summary = new();
     private bool _isAuthenticated;
     private bool _isLoading;
+    private bool _isProductEditorOpen;
+    private bool _isEditingProduct;
     private string? _loginError;
     private string? _apiErrorMessage;
+    private string? _productEditorError;
     private string? _currentUserName;
     private string? _currentRoleName;
+    private string _productName = string.Empty;
+    private string _productCategory = string.Empty;
+    private decimal _productPrice;
+    private int _productQuantity;
+    private bool _productIsActive = true;
 
     public MainViewModel()
     {
@@ -42,7 +51,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             new NavigationItem("Dashboard", "Огляд", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
             new NavigationItem("Orders", "Замовлення", new OrdersView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
-            new NavigationItem("Products", "Товари", new ProductsView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
+            new NavigationItem("Products", "Товари", new ProductsView(), new[] { "Admin" }),
             new NavigationItem("Users", "Користувачі", new UsersView(), new[] { "Admin", "Director" }),
             new NavigationItem("Reports", "Звіти", new ReportsView(), new[] { "Admin", "Viewer", "Director" })
         };
@@ -59,6 +68,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
+        BeginAddProductCommand = new RelayCommand(_ => BeginAddProduct(), _ => CanManageProducts);
+        BeginEditProductCommand = new RelayCommand(_ => BeginEditProduct(), _ => CanManageProducts && SelectedProduct is not null);
+        SaveProductCommand = new RelayCommand(_ => SaveProduct(), _ => CanManageProducts && IsProductEditorOpen);
+        CancelProductEditCommand = new RelayCommand(_ => CloseProductEditor(), _ => IsProductEditorOpen);
 
         _selectedLoginUser = TestUsers[0];
         _selectedItem = _allNavigationItems[0];
@@ -80,6 +93,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand SignOutCommand { get; }
 
     public ICommand RefreshDataCommand { get; }
+
+    public ICommand BeginAddProductCommand { get; }
+
+    public ICommand BeginEditProductCommand { get; }
+
+    public ICommand SaveProductCommand { get; }
+
+    public ICommand CancelProductEditCommand { get; }
 
     public TestUser SelectedLoginUser
     {
@@ -182,6 +203,131 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public ProductListItem? SelectedProduct
+    {
+        get => _selectedProduct;
+        set
+        {
+            if (_selectedProduct == value)
+            {
+                return;
+            }
+
+            _selectedProduct = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsProductEditorOpen
+    {
+        get => _isProductEditorOpen;
+        private set
+        {
+            if (_isProductEditorOpen == value)
+            {
+                return;
+            }
+
+            _isProductEditorOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string ProductEditorTitle => _isEditingProduct ? "Редагування товару" : "Новий товар";
+
+    public string? ProductEditorError
+    {
+        get => _productEditorError;
+        private set
+        {
+            if (_productEditorError == value)
+            {
+                return;
+            }
+
+            _productEditorError = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasProductEditorError));
+        }
+    }
+
+    public bool HasProductEditorError => !string.IsNullOrWhiteSpace(ProductEditorError);
+
+    public string ProductName
+    {
+        get => _productName;
+        set
+        {
+            if (_productName == value)
+            {
+                return;
+            }
+
+            _productName = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string ProductCategory
+    {
+        get => _productCategory;
+        set
+        {
+            if (_productCategory == value)
+            {
+                return;
+            }
+
+            _productCategory = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public decimal ProductPrice
+    {
+        get => _productPrice;
+        set
+        {
+            if (_productPrice == value)
+            {
+                return;
+            }
+
+            _productPrice = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int ProductQuantity
+    {
+        get => _productQuantity;
+        set
+        {
+            if (_productQuantity == value)
+            {
+                return;
+            }
+
+            _productQuantity = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool ProductIsActive
+    {
+        get => _productIsActive;
+        set
+        {
+            if (_productIsActive == value)
+            {
+                return;
+            }
+
+            _productIsActive = value;
+            OnPropertyChanged();
+        }
+    }
+
     public string? CurrentUserName
     {
         get => _currentUserName;
@@ -248,7 +394,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool CanManageOrders => CurrentRoleName is "Admin" or "Manager" or "Director";
 
-    public bool CanManageProducts => CurrentRoleName is "Admin" or "Director";
+    public bool CanManageProducts => CurrentRoleName is "Admin";
 
     public bool CanManageUsers => CurrentRoleName is "Admin" or "Director";
 
@@ -289,6 +435,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ApiErrorMessage = null;
         Orders.Clear();
         Products.Clear();
+        SelectedProduct = null;
+        CloseProductEditor();
         Summary = new ReportSummary();
         NavigationItems.Clear();
         SelectedItem = _allNavigationItems[0];
@@ -326,6 +474,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             ReplaceCollection(Orders, orders);
             ReplaceCollection(Products, products);
+            SelectedProduct = Products.FirstOrDefault();
             Summary = summary;
         }
         catch (Exception exception)
@@ -346,6 +495,107 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             target.Add(item);
         }
+    }
+
+    private void BeginAddProduct()
+    {
+        _isEditingProduct = false;
+        ProductName = string.Empty;
+        ProductCategory = string.Empty;
+        ProductPrice = 1m;
+        ProductQuantity = 0;
+        ProductIsActive = true;
+        ProductEditorError = null;
+        IsProductEditorOpen = true;
+        OnPropertyChanged(nameof(ProductEditorTitle));
+    }
+
+    private void BeginEditProduct()
+    {
+        if (SelectedProduct is null)
+        {
+            ProductEditorError = "Оберіть товар для редагування.";
+            return;
+        }
+
+        _isEditingProduct = true;
+        ProductName = SelectedProduct.Name;
+        ProductCategory = SelectedProduct.Category;
+        ProductPrice = SelectedProduct.Price;
+        ProductQuantity = SelectedProduct.Quantity;
+        ProductIsActive = SelectedProduct.IsActive;
+        ProductEditorError = null;
+        IsProductEditorOpen = true;
+        OnPropertyChanged(nameof(ProductEditorTitle));
+    }
+
+    private void SaveProduct()
+    {
+        if (!ValidateProductForm())
+        {
+            return;
+        }
+
+        if (_isEditingProduct && SelectedProduct is not null)
+        {
+            SelectedProduct.Name = ProductName.Trim();
+            SelectedProduct.Category = ProductCategory.Trim();
+            SelectedProduct.Price = ProductPrice;
+            SelectedProduct.Quantity = ProductQuantity;
+            SelectedProduct.IsActive = ProductIsActive;
+        }
+        else
+        {
+            ProductListItem product = new()
+            {
+                Name = ProductName.Trim(),
+                Category = ProductCategory.Trim(),
+                Price = ProductPrice,
+                Quantity = ProductQuantity,
+                IsActive = ProductIsActive
+            };
+
+            Products.Add(product);
+            SelectedProduct = product;
+        }
+
+        CloseProductEditor();
+    }
+
+    private bool ValidateProductForm()
+    {
+        if (string.IsNullOrWhiteSpace(ProductName))
+        {
+            ProductEditorError = "Вкажіть назву товару.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(ProductCategory))
+        {
+            ProductEditorError = "Вкажіть категорію товару.";
+            return false;
+        }
+
+        if (ProductPrice <= 0)
+        {
+            ProductEditorError = "Ціна товару має бути більшою за 0.";
+            return false;
+        }
+
+        if (ProductQuantity < 0)
+        {
+            ProductEditorError = "Кількість не може бути меншою за 0.";
+            return false;
+        }
+
+        ProductEditorError = null;
+        return true;
+    }
+
+    private void CloseProductEditor()
+    {
+        ProductEditorError = null;
+        IsProductEditorOpen = false;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
