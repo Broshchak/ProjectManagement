@@ -17,10 +17,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private NavigationItem _selectedItem;
     private UserControl _currentView;
     private TestUser _selectedLoginUser;
+    private OrderListItem? _selectedOrder;
+    private OrderDetail? _selectedOrderDetails;
     private ProductListItem? _selectedProduct;
     private ReportSummary _summary = new();
     private bool _isAuthenticated;
     private bool _isLoading;
+    private bool _isOrderDetailsLoading;
     private bool _isProductEditorOpen;
     private bool _isEditingProduct;
     private string? _loginError;
@@ -199,6 +202,58 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set
         {
             _summary = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public OrderListItem? SelectedOrder
+    {
+        get => _selectedOrder;
+        set
+        {
+            if (_selectedOrder == value)
+            {
+                return;
+            }
+
+            _selectedOrder = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelectedOrder));
+            _ = LoadSelectedOrderDetailsAsync();
+        }
+    }
+
+    public bool HasSelectedOrder => SelectedOrder is not null;
+
+    public OrderDetail? SelectedOrderDetails
+    {
+        get => _selectedOrderDetails;
+        private set
+        {
+            if (_selectedOrderDetails == value)
+            {
+                return;
+            }
+
+            _selectedOrderDetails = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelectedOrderDetails));
+        }
+    }
+
+    public bool HasSelectedOrderDetails => SelectedOrderDetails is not null;
+
+    public bool IsOrderDetailsLoading
+    {
+        get => _isOrderDetailsLoading;
+        private set
+        {
+            if (_isOrderDetailsLoading == value)
+            {
+                return;
+            }
+
+            _isOrderDetailsLoading = value;
             OnPropertyChanged();
         }
     }
@@ -443,6 +498,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         LoginError = null;
         ApiErrorMessage = null;
         Orders.Clear();
+        SelectedOrder = null;
+        SelectedOrderDetails = null;
         Products.Clear();
         SelectedProduct = null;
         CloseProductEditor();
@@ -476,11 +533,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         try
         {
+            string? selectedOrderNumber = SelectedOrder?.Number;
             IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
             IReadOnlyList<ProductListItem> products = await _apiClient.GetProductsAsync();
             ReportSummary summary = await _apiClient.GetReportSummaryAsync();
 
             ReplaceCollection(Orders, orders);
+            OrderListItem? nextSelectedOrder = Orders.FirstOrDefault(order => order.Number == selectedOrderNumber)
+                ?? Orders.FirstOrDefault();
+
+            if (SelectedOrder == nextSelectedOrder)
+            {
+                await LoadSelectedOrderDetailsAsync();
+            }
+            else
+            {
+                SelectedOrder = nextSelectedOrder;
+            }
+
             ReplaceCollection(Products, products);
             SelectedProduct = Products.FirstOrDefault();
             Summary = summary;
@@ -492,6 +562,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    private async Task LoadSelectedOrderDetailsAsync()
+    {
+        if (SelectedOrder is null)
+        {
+            SelectedOrderDetails = null;
+            return;
+        }
+
+        IsOrderDetailsLoading = true;
+
+        try
+        {
+            SelectedOrderDetails = await _apiClient.GetOrderDetailsAsync(SelectedOrder.Number);
+        }
+        catch (Exception exception)
+        {
+            SelectedOrderDetails = null;
+            ApiErrorMessage = $"Не вдалося отримати деталі замовлення. Деталі: {exception.Message}";
+        }
+        finally
+        {
+            IsOrderDetailsLoading = false;
         }
     }
 

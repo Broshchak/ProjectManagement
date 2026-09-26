@@ -1,29 +1,150 @@
 <UserControl x:Class="WpfClient.Views.OrdersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
-        <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Створити замовлення"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        Margin="0,0,8,0" />
-                <Button Content="Оновити"
-                        Command="{Binding RefreshDataCommand}"
-                        Style="{StaticResource ActionButtonStyle}" />
-            </StackPanel>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.25*" />
+            <ColumnDefinition Width="0.95*" />
+        </Grid.ColumnDefinitions>
 
-            <DataGrid ItemsSource="{Binding Orders}"
-                      AutoGenerateColumns="False"
-                      CanUserAddRows="False"
-                      IsReadOnly="True">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Номер" Binding="{Binding Number}" Width="120" />
-                    <DataGridTextColumn Header="Клієнт" Binding="{Binding Customer}" Width="*" />
-                    <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="150" />
-                    <DataGridTextColumn Header="Сума" Binding="{Binding TotalText}" Width="120" />
-                </DataGrid.Columns>
-            </DataGrid>
-        </DockPanel>
-    </Border>
+        <Border Grid.Column="0"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="20">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Створити замовлення"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Оновити"
+                                Command="{Binding RefreshDataCommand}"
+                                Style="{StaticResource ActionButtonStyle}" />
+                    </StackPanel>
+
+                    <Border Background="#FFF4E5"
+                            BorderBrush="#F0B35B"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10"
+                            Margin="0,12,0,0"
+                            Visibility="{Binding HasApiError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding ApiErrorMessage}"
+                                   Foreground="#8A4B00"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+
+                <DataGrid ItemsSource="{Binding Orders}"
+                          SelectedItem="{Binding SelectedOrder, Mode=TwoWay}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Номер" Binding="{Binding Number}" Width="115" />
+                        <DataGridTextColumn Header="Дата" Binding="{Binding CreatedAtText}" Width="105" />
+                        <DataGridTextColumn Header="Клієнт" Binding="{Binding Customer}" Width="*" />
+                        <DataGridTextColumn Header="Стан" Binding="{Binding Status}" Width="130" />
+                        <DataGridTextColumn Header="Сума" Binding="{Binding TotalText}" Width="110" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Column="1"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="20"
+                Margin="16,0,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Деталі замовлення"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Foreground="#17202B"
+                               Margin="0,0,0,14" />
+
+                    <TextBlock Text="Оберіть замовлення у списку"
+                               Foreground="#687789"
+                               Visibility="{Binding HasSelectedOrder, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+                    <StackPanel Visibility="{Binding HasSelectedOrderDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="Номер" Foreground="#687789" Margin="0,0,12,8" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedOrderDetails.Number}" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="1" Text="Дата" Foreground="#687789" Margin="0,0,12,8" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedOrderDetails.CreatedAtText}" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="2" Text="Клієнт" Foreground="#687789" Margin="0,0,12,8" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedOrderDetails.Customer}" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="3" Text="Стан" Foreground="#687789" Margin="0,0,12,8" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedOrderDetails.Status}" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="4" Text="Сума" Foreground="#687789" Margin="0,0,12,8" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedOrderDetails.TotalText}" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="5" Text="Коментар" Foreground="#687789" Margin="0,0,12,0" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedOrderDetails.Comment}" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <TextBlock Text="Позиції"
+                                   FontWeight="SemiBold"
+                                   Foreground="#17202B"
+                                   Margin="0,0,0,8" />
+                        <DataGrid ItemsSource="{Binding SelectedOrderDetails.Items}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  IsReadOnly="True"
+                                  MaxHeight="190"
+                                  Margin="0,0,0,18">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Товар" Binding="{Binding ProductName}" Width="*" />
+                                <DataGridTextColumn Header="К-сть" Binding="{Binding Quantity}" Width="70" />
+                                <DataGridTextColumn Header="Ціна" Binding="{Binding UnitPriceText}" Width="105" />
+                                <DataGridTextColumn Header="Сума" Binding="{Binding LineTotalText}" Width="105" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Історія станів"
+                                   FontWeight="SemiBold"
+                                   Foreground="#17202B"
+                                   Margin="0,0,0,8" />
+                        <DataGrid ItemsSource="{Binding SelectedOrderDetails.StatusHistory}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  IsReadOnly="True"
+                                  MaxHeight="220">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Дата" Binding="{Binding ChangedAtText}" Width="120" />
+                                <DataGridTextColumn Header="Зі стану" Binding="{Binding PreviousStatus}" Width="95" />
+                                <DataGridTextColumn Header="У стан" Binding="{Binding NewStatus}" Width="95" />
+                                <DataGridTextColumn Header="Користувач" Binding="{Binding ChangedBy}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
 </UserControl>
