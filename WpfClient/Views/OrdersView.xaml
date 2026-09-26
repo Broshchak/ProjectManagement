@@ -3,14 +3,28 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
         <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Створити замовлення"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        Margin="0,0,8,0" />
-                <Button Content="Оновити"
-                        Command="{Binding RefreshDataCommand}"
-                        Style="{StaticResource ActionButtonStyle}" />
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Створити замовлення"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Оновити"
+                            Command="{Binding RefreshDataCommand}"
+                            Style="{StaticResource ActionButtonStyle}" />
+                </StackPanel>
+
+                <Border Background="#FFF4E5"
+                        BorderBrush="#F0B35B"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,12,0,0"
+                        Visibility="{Binding HasApiError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="{Binding ApiErrorMessage}"
+                               Foreground="#8A4B00"
+                               TextWrapping="Wrap" />
+                </Border>
             </StackPanel>
 
             <DataGrid ItemsSource="{Binding Orders}"
@@ -19,8 +33,9 @@
                       IsReadOnly="True">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Номер" Binding="{Binding Number}" Width="120" />
+                    <DataGridTextColumn Header="Дата" Binding="{Binding CreatedAtText}" Width="120" />
                     <DataGridTextColumn Header="Клієнт" Binding="{Binding Customer}" Width="*" />
-                    <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="150" />
+                    <DataGridTextColumn Header="Стан" Binding="{Binding Status}" Width="150" />
                     <DataGridTextColumn Header="Сума" Binding="{Binding TotalText}" Width="120" />
                 </DataGrid.Columns>
             </DataGrid>

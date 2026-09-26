@@ -6,11 +6,11 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
 {
     private readonly IReadOnlyList<OrderListItem> _orders =
     [
-        new() { Number = "ORD-0001", Customer = "Demo Customer", Status = "NewOrder", Total = 90m },
-        new() { Number = "ORD-0002", Customer = "Lviv Office", Status = "Registered", Total = 475m },
-        new() { Number = "ORD-0003", Customer = "Student Lab", Status = "Granted", Total = 860m },
-        new() { Number = "ORD-0004", Customer = "Library", Status = "Shipped", Total = 2400m },
-        new() { Number = "ORD-0005", Customer = "Dean Office", Status = "Invoiced", Total = 725m }
+        new() { Number = "ORD-0001", CreatedAt = new DateTime(2026, 9, 1), Customer = "Demo Customer", Status = "NewOrder", Total = 90m },
+        new() { Number = "ORD-0002", CreatedAt = new DateTime(2026, 9, 3), Customer = "Lviv Office", Status = "Registered", Total = 475m },
+        new() { Number = "ORD-0003", CreatedAt = new DateTime(2026, 9, 5), Customer = "Student Lab", Status = "Granted", Total = 860m },
+        new() { Number = "ORD-0004", CreatedAt = new DateTime(2026, 9, 8), Customer = "Library", Status = "Shipped", Total = 2400m },
+        new() { Number = "ORD-0005", CreatedAt = new DateTime(2026, 9, 10), Customer = "Dean Office", Status = "Invoiced", Total = 725m }
     ];
 
     private readonly IReadOnlyList<ProductListItem> _products =
