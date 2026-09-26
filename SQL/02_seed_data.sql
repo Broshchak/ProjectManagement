@@ -35,22 +35,21 @@ VALUES
     ('Furniture', 'Furniture items for larger orders')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO products (category_id, name, description, available_quantity)
-SELECT c.id, p.name, p.description, p.available_quantity
+INSERT INTO products (category_id, name, description)
+SELECT c.id, p.name, p.description
 FROM (
     VALUES
-        ('Office supplies', 'Notebook A5', 'A5 paper notebook', 120),
-        ('Office supplies', 'Blue pen', 'Simple blue ballpoint pen', 300),
-        ('Office supplies', 'Folder', 'Document folder', 80),
-        ('Electronics', 'USB flash drive 32GB', 'USB 3.0 flash drive', 35),
-        ('Electronics', 'Wireless mouse', 'Compact wireless mouse', 25),
-        ('Furniture', 'Office chair', 'Basic office chair', 10)
-) AS p(category_name, name, description, available_quantity)
+        ('Office supplies', 'Notebook A5', 'A5 paper notebook'),
+        ('Office supplies', 'Blue pen', 'Simple blue ballpoint pen'),
+        ('Office supplies', 'Folder', 'Document folder'),
+        ('Electronics', 'USB flash drive 32GB', 'USB 3.0 flash drive'),
+        ('Electronics', 'Wireless mouse', 'Compact wireless mouse'),
+        ('Furniture', 'Office chair', 'Basic office chair')
+) AS p(category_name, name, description)
 JOIN product_categories c ON c.name = p.category_name
 ON CONFLICT (category_id, name) DO UPDATE
 SET
-    description = EXCLUDED.description,
-    available_quantity = EXCLUDED.available_quantity;
+    description = EXCLUDED.description;
 
 INSERT INTO product_prices (product_id, price, currency_code)
 SELECT p.id, v.price, 'UAH'
@@ -66,6 +65,24 @@ FROM (
 JOIN product_categories c ON c.name = v.category_name
 JOIN products p ON p.category_id = c.id AND p.name = v.product_name
 ON CONFLICT (product_id) DO NOTHING;
+
+INSERT INTO product_stocks (product_id, quantity)
+SELECT p.id, v.quantity
+FROM (
+    VALUES
+        ('Office supplies', 'Notebook A5', 120),
+        ('Office supplies', 'Blue pen', 300),
+        ('Office supplies', 'Folder', 80),
+        ('Electronics', 'USB flash drive 32GB', 35),
+        ('Electronics', 'Wireless mouse', 25),
+        ('Furniture', 'Office chair', 10)
+) AS v(category_name, product_name, quantity)
+JOIN product_categories c ON c.name = v.category_name
+JOIN products p ON p.category_id = c.id AND p.name = v.product_name
+ON CONFLICT (product_id) DO UPDATE
+SET
+    quantity = EXCLUDED.quantity,
+    updated_at = NOW();
 
 INSERT INTO customers (full_name, phone, email, address)
 VALUES ('Demo Customer', '+380000000000', 'customer@example.com', 'Lviv, Demo street 1')

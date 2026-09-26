@@ -174,12 +174,11 @@
 - посилання на категорію;
 - назву;
 - опис;
-- доступну кількість;
 - ознаку активності;
 - дату створення;
 - дату останнього оновлення.
 
-Поточна ціна зберігається в окремій таблиці `product_prices`. Доступна кількість зберігається безпосередньо в полі `products.available_quantity`, щоб у системі було одне джерело правди для залишку товару.
+Поточна ціна зберігається в окремій таблиці `product_prices`. Доступна кількість товару зберігається в таблиці `product_stocks`; у view `v_products_current` вона відображається як поле товару `available_quantity`.
 
 ### ProductPrice
 
@@ -190,6 +189,17 @@
 - ціну;
 - код валюти;
 - дату створення.
+
+### ProductStock
+
+Залишок товару містить:
+
+- унікальний ідентифікатор;
+- посилання на товар;
+- кількість;
+- дату останнього оновлення.
+
+Саме `product_stocks.quantity` є джерелом правди для доступної кількості товару.
 
 ### OrderItem
 
@@ -239,8 +249,9 @@
 | `order_statuses` | Довідник статусів замовлення | `id`, `code`, `name`, `sort_order`, `is_final` |
 | `customers` | Клієнти | `id`, `full_name`, `phone`, `email`, `address`, `created_at`, `updated_at` |
 | `product_categories` | Категорії товарів | `id`, `name`, `description`, `is_active`, `created_at`, `updated_at` |
-| `products` | Каталог товарів | `id`, `category_id`, `name`, `description`, `available_quantity`, `is_active`, `created_at`, `updated_at` |
+| `products` | Каталог товарів | `id`, `category_id`, `name`, `description`, `is_active`, `created_at`, `updated_at` |
 | `product_prices` | Поточні ціни товарів | `id`, `product_id`, `price`, `currency_code`, `created_at` |
+| `product_stocks` | Поточні залишки товарів | `id`, `product_id`, `quantity`, `updated_at` |
 | `orders` | Замовлення | `id`, `order_number`, `status_id`, `customer_id`, `created_by_user_id`, `comment`, `created_at`, `updated_at` |
 | `order_items` | Позиції замовлень | `id`, `order_id`, `product_id`, `quantity`, `unit_price`, `created_at`, `updated_at` |
 | `order_status_history` | Історія зміни статусів | `id`, `order_id`, `previous_status_id`, `new_status_id`, `changed_by_user_id`, `changed_at`, `comment` |
@@ -461,7 +472,7 @@
 
 До складу епіку входить:
 
-- проєктування сутностей `Role`, `User`, `Customer`, `OrderStatus`, `Order`, `ProductCategory`, `Product`, `ProductPrice`, `OrderItem`, `OrderStatusHistory`, `TelegramAllowedUser`;
+- проєктування сутностей `Role`, `User`, `Customer`, `OrderStatus`, `Order`, `ProductCategory`, `Product`, `ProductPrice`, `ProductStock`, `OrderItem`, `OrderStatusHistory`, `TelegramAllowedUser`;
 - визначення станів замовлення `NewOrder`, `Registered`, `Granted`, `Shipped`, `Invoiced`, `Cancelled`;
 - реалізація правил дозволених і заборонених переходів між станами;
 - реалізація обмежень для редагування замовлення залежно від його стану;
