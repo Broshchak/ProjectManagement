@@ -8,6 +8,8 @@ public interface IOrdersApiClient
 
     Task<OrderDetail?> GetOrderDetailsAsync(string orderNumber, CancellationToken cancellationToken = default);
 
+    Task ChangeOrderStatusAsync(string orderNumber, string action, string changedBy, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default);
 
     Task<ReportSummary> GetReportSummaryAsync(CancellationToken cancellationToken = default);

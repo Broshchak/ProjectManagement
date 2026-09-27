@@ -108,6 +108,46 @@
                             <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedOrderDetails.Comment}" TextWrapping="Wrap" />
                         </Grid>
 
+                        <StackPanel Margin="0,0,0,18"
+                                    Visibility="{Binding HasAvailableOrderStatusActions, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Дії зі станом"
+                                       FontWeight="SemiBold"
+                                       Foreground="#17202B"
+                                       Margin="0,0,0,8" />
+                            <WrapPanel>
+                                <Button Content="Зареєструвати"
+                                        Command="{Binding ChangeOrderStatusCommand}"
+                                        CommandParameter="register"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Visibility="{Binding CanRegisterOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Margin="0,0,8,8" />
+                                <Button Content="Погодити"
+                                        Command="{Binding ChangeOrderStatusCommand}"
+                                        CommandParameter="grant"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Visibility="{Binding CanGrantOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Margin="0,0,8,8" />
+                                <Button Content="Відправити"
+                                        Command="{Binding ChangeOrderStatusCommand}"
+                                        CommandParameter="ship"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Visibility="{Binding CanShipOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Margin="0,0,8,8" />
+                                <Button Content="Виставити рахунок"
+                                        Command="{Binding ChangeOrderStatusCommand}"
+                                        CommandParameter="invoice"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Visibility="{Binding CanInvoiceOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Margin="0,0,8,8" />
+                                <Button Content="Скасувати"
+                                        Command="{Binding ChangeOrderStatusCommand}"
+                                        CommandParameter="cancel"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Visibility="{Binding CanCancelOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Margin="0,0,8,8" />
+                            </WrapPanel>
+                        </StackPanel>
+
                         <TextBlock Text="Позиції"
                                    FontWeight="SemiBold"
                                    Foreground="#17202B"
