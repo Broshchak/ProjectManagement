@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS product_categories;
 DROP TABLE IF EXISTS customers;
 DROP TABLE IF EXISTS order_statuses;
+DROP TABLE IF EXISTS telegram_allowed_users;
 DROP TABLE IF EXISTS app_users;
 DROP TABLE IF EXISTS roles;
 
