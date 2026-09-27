@@ -1,26 +1,172 @@
 <UserControl x:Class="WpfClient.Views.UsersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
-        <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                <Button Content="Додати користувача"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        Margin="0,0,8,0" />
-                <Button Content="Змінити роль"
-                        Style="{StaticResource ActionButtonStyle}"
-                        Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
-            </StackPanel>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
-            <DataGrid AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Логін" Binding="{Binding Login}" Width="160" />
-                    <DataGridTextColumn Header="ПІБ" Binding="{Binding FullName}" Width="*" />
-                    <DataGridTextColumn Header="Роль" Binding="{Binding Role}" Width="160" />
-                    <DataGridCheckBoxColumn Header="Активний" Binding="{Binding IsActive}" Width="120" />
-                </DataGrid.Columns>
-            </DataGrid>
-        </DockPanel>
-    </Border>
+        <Border Grid.Column="0"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="20">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                    <Button Content="Додати користувача"
+                            Command="{Binding BeginAddUserCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Редагувати"
+                            Command="{Binding BeginEditUserCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </StackPanel>
+
+                <DataGrid ItemsSource="{Binding TestUsers}"
+                          SelectedItem="{Binding SelectedUser, Mode=TwoWay}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Логін" Binding="{Binding Login}" Width="130" />
+                        <DataGridTextColumn Header="ПІБ" Binding="{Binding FullName}" Width="*" />
+                        <DataGridTextColumn Header="Роль" Binding="{Binding RoleName}" Width="110" />
+                        <DataGridTemplateColumn Header="Активний" Width="90">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid HorizontalAlignment="Center">
+                                        <Ellipse Width="10"
+                                                 Height="10">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#C8D1DC" />
+                                                    <Setter Property="ToolTip" Value="Користувач неактивний" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                            <Setter Property="Fill" Value="#16A34A" />
+                                                            <Setter Property="ToolTip" Value="Користувач активний" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="TG" Width="58">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid HorizontalAlignment="Center">
+                                        <Ellipse Width="10"
+                                                 Height="10">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#C8D1DC" />
+                                                    <Setter Property="ToolTip" Value="Telegram неактивний" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding TelegramActive}" Value="True">
+                                                            <Setter Property="Fill" Value="#16A34A" />
+                                                            <Setter Property="ToolTip" Value="Telegram активний" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Telegram ID" Binding="{Binding TelegramUserIdText}" Width="125" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Column="1"
+                Background="#FFFFFF"
+                BorderBrush="#D9E1EA"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="20"
+                Width="340"
+                Margin="16,0,0,0"
+                Visibility="{Binding IsUserEditorOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="{Binding UserEditorTitle}"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Foreground="#17202B"
+                               Margin="0,0,0,16" />
+
+                    <TextBlock Text="Логін" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBox Text="{Binding UserLogin, UpdateSourceTrigger=PropertyChanged}"
+                             MinHeight="34"
+                             Padding="8"
+                             Margin="0,0,0,12" />
+
+                    <TextBlock Text="ПІБ" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBox Text="{Binding UserFullName, UpdateSourceTrigger=PropertyChanged}"
+                             MinHeight="34"
+                             Padding="8"
+                             Margin="0,0,0,12" />
+
+                    <TextBlock Text="Роль" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <ComboBox ItemsSource="{Binding RoleOptions}"
+                              SelectedItem="{Binding UserRoleName, Mode=TwoWay}"
+                              MinHeight="34"
+                              Padding="8"
+                              Margin="0,0,0,12" />
+
+                    <TextBlock Text="Пароль" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBox Text="{Binding UserPassword, UpdateSourceTrigger=PropertyChanged}"
+                             MinHeight="34"
+                             Padding="8"
+                             Margin="0,0,0,12" />
+
+                    <CheckBox Content="Обліковий запис активний"
+                              IsChecked="{Binding UserIsActive}"
+                              Margin="0,0,0,12" />
+
+                    <CheckBox Content="Дозволити Telegram-доступ"
+                              IsChecked="{Binding UserTelegramAllowed}"
+                              Margin="0,0,0,8" />
+
+                    <TextBlock Text="Telegram User ID" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBox Text="{Binding UserTelegramUserId, UpdateSourceTrigger=PropertyChanged}"
+                             MinHeight="34"
+                             Padding="8"
+                             Margin="0,0,0,14" />
+
+                    <Border Background="#FDECEC"
+                            BorderBrush="#F5B5B5"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10"
+                            Margin="0,0,0,14"
+                            Visibility="{Binding HasUserEditorError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding UserEditorError}"
+                                   Foreground="#9B1C1C"
+                                   TextWrapping="Wrap" />
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Зберегти"
+                                Command="{Binding SaveUserCommand}"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Скасувати"
+                                Command="{Binding CancelUserEditCommand}"
+                                Style="{StaticResource ActionButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
 </UserControl>

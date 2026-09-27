@@ -114,6 +114,8 @@
 - логін;
 - хеш пароля або інший механізм автентифікації;
 - повне ім'я;
+- ознаку дозволу доступу через Telegram;
+- Telegram user id;
 - ознаку активності облікового запису;
 - дату створення;
 - дату останнього оновлення.
@@ -227,17 +229,6 @@
 - дату й час зміни;
 - коментар.
 
-### TelegramAllowedUser
-
-Дозволений Telegram-користувач містить:
-
-- унікальний ідентифікатор;
-- Telegram user id;
-- посилання на роль;
-- відображуване ім'я;
-- ознаку активності;
-- дату створення.
-
 ### Структура таблиць БД
 
 Фактична структура БД має відповідати SQL-скриптам `SQL/01_create_schema.sql` і `SQL/02_seed_data.sql`.
@@ -245,7 +236,7 @@
 | Таблиця | Призначення | Основні поля |
 | --- | --- | --- |
 | `roles` | Довідник ролей | `id`, `code`, `name` |
-| `app_users` | Облікові записи користувачів | `id`, `role_id`, `login`, `password_hash`, `full_name`, `is_active`, `created_at`, `updated_at` |
+| `app_users` | Облікові записи користувачів | `id`, `role_id`, `login`, `password_hash`, `full_name`, `telegram_allowed`, `telegram_user_id`, `is_active`, `created_at`, `updated_at` |
 | `order_statuses` | Довідник статусів замовлення | `id`, `code`, `name`, `sort_order`, `is_final` |
 | `customers` | Клієнти | `id`, `full_name`, `phone`, `email`, `address`, `created_at`, `updated_at` |
 | `product_categories` | Категорії товарів | `id`, `name`, `description`, `is_active`, `created_at`, `updated_at` |
@@ -255,7 +246,6 @@
 | `orders` | Замовлення | `id`, `order_number`, `status_id`, `customer_id`, `created_by_user_id`, `comment`, `created_at`, `updated_at` |
 | `order_items` | Позиції замовлень | `id`, `order_id`, `product_id`, `quantity`, `unit_price`, `created_at`, `updated_at` |
 | `order_status_history` | Історія зміни статусів | `id`, `order_id`, `previous_status_id`, `new_status_id`, `changed_by_user_id`, `changed_at`, `comment` |
-| `telegram_allowed_users` | Дозволені Telegram-користувачі | `id`, `telegram_user_id`, `role_id`, `display_name`, `is_active`, `created_at` |
 
 У БД також створюються view:
 
@@ -291,7 +281,7 @@
 - переглядати замовлення можуть `Admin`, `Manager / Operator`, `Viewer` і `Director`;
 - переглядати статистику можуть `Admin`, `Viewer` і `Director`;
 - переглядати користувачів можуть `Admin` і `Director`, але додавати користувачів або змінювати їхні ролі може лише `Admin`;
-- команди Telegram для звітів доступні лише дозволеним Telegram-користувачам;
+- команди Telegram для звітів доступні лише активним користувачам з `telegram_allowed = TRUE` і заповненим `telegram_user_id`;
 - користувач без потрібної ролі отримує відмову доступу без зміни даних.
 
 ## 7. Стани замовлення
@@ -472,7 +462,7 @@
 
 До складу епіку входить:
 
-- проєктування сутностей `Role`, `User`, `Customer`, `OrderStatus`, `Order`, `ProductCategory`, `Product`, `ProductPrice`, `ProductStock`, `OrderItem`, `OrderStatusHistory`, `TelegramAllowedUser`;
+- проєктування сутностей `Role`, `User`, `Customer`, `OrderStatus`, `Order`, `ProductCategory`, `Product`, `ProductPrice`, `ProductStock`, `OrderItem`, `OrderStatusHistory`;
 - визначення станів замовлення `NewOrder`, `Registered`, `Granted`, `Shipped`, `Invoiced`, `Cancelled`;
 - реалізація правил дозволених і заборонених переходів між станами;
 - реалізація обмежень для редагування замовлення залежно від його стану;
@@ -513,7 +503,7 @@
 
 До складу епіку входить:
 
-- проєктування структури таблиць для ролей, користувачів, клієнтів, статусів замовлення, товарів, категорій, цін, залишків, замовлень, позицій, історії станів і Telegram-доступу;
+- проєктування структури таблиць для ролей, користувачів із Telegram-доступом, клієнтів, статусів замовлення, товарів, категорій, цін, залишків, замовлень, позицій і історії станів;
 - проєктування view для поточних даних товарів, деталізації позицій і підсумків замовлень;
 - проєктування індексів, зовнішніх ключів, унікальних обмежень, check-обмежень і тригерів оновлення `updated_at`;
 - налаштування підключення до віддаленої БД;
@@ -524,7 +514,7 @@
 
 Очікуваний результат:
 
-- дані користувачів, ролей, клієнтів, товарів, цін, залишків, замовлень, позицій, історії статусів і Telegram-доступу зберігаються у БД;
+- дані користувачів, ролей, Telegram-доступу користувачів, клієнтів, товарів, цін, залишків, замовлень, позицій і історії статусів зберігаються у БД;
 - структура БД описана в документації та може бути відтворена через SQL-скрипт або ручне налаштування;
 - конфігурація не містить відкритих секретів у коді.
 

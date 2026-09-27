@@ -16,17 +16,34 @@ VALUES
     ('Cancelled', 'Cancelled order', 6, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO app_users (login, password_hash, full_name, role_id)
-SELECT u.login, u.password_hash, u.full_name, r.id
+INSERT INTO app_users (
+    login,
+    password_hash,
+    full_name,
+    telegram_allowed,
+    telegram_user_id,
+    role_id
+)
+SELECT
+    u.login,
+    u.password_hash,
+    u.full_name,
+    u.telegram_allowed,
+    u.telegram_user_id,
+    r.id
 FROM (
     VALUES
-        ('admin', 'CHANGE_ME_HASH_ADMIN', 'System Administrator', 'Admin'),
-        ('manager', 'CHANGE_ME_HASH_MANAGER', 'Order Manager', 'Manager'),
-        ('viewer', 'CHANGE_ME_HASH_VIEWER', 'Read Only User', 'Viewer'),
-        ('director', 'CHANGE_ME_HASH_DIRECTOR', 'Company Director', 'Director')
-) AS u(login, password_hash, full_name, role_code)
+        ('admin', 'CHANGE_ME_HASH_ADMIN', 'System Administrator', FALSE, NULL::BIGINT, 'Admin'),
+        ('manager', 'CHANGE_ME_HASH_MANAGER', 'Order Manager', FALSE, NULL::BIGINT, 'Manager'),
+        ('viewer', 'CHANGE_ME_HASH_VIEWER', 'Read Only User', FALSE, NULL::BIGINT, 'Viewer'),
+        ('director', 'CHANGE_ME_HASH_DIRECTOR', 'Company Director', FALSE, NULL::BIGINT, 'Director')
+) AS u(login, password_hash, full_name, telegram_allowed, telegram_user_id, role_code)
 JOIN roles r ON r.code = u.role_code
-ON CONFLICT (login) DO NOTHING;
+ON CONFLICT (login) DO UPDATE
+SET
+    password_hash = EXCLUDED.password_hash,
+    full_name = EXCLUDED.full_name,
+    role_id = EXCLUDED.role_id;
 
 INSERT INTO product_categories (name, description)
 VALUES
