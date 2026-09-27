@@ -4,7 +4,7 @@ namespace WpfClient.Services;
 
 public sealed class MockOrdersApiClient : IOrdersApiClient
 {
-    private readonly IReadOnlyList<OrderListItem> _orders =
+    private readonly List<OrderListItem> _orders =
     [
         new() { Number = "ORD-0001", CreatedAt = new DateTime(2026, 9, 1), Customer = "Demo Customer", Status = "NewOrder", Total = 90m },
         new() { Number = "ORD-0002", CreatedAt = new DateTime(2026, 9, 3), Customer = "Lviv Office", Status = "Registered", Total = 475m },
@@ -13,7 +13,7 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
         new() { Number = "ORD-0005", CreatedAt = new DateTime(2026, 9, 10), Customer = "Dean Office", Status = "Invoiced", Total = 725m }
     ];
 
-    private readonly IReadOnlyDictionary<string, OrderDetail> _orderDetails = new Dictionary<string, OrderDetail>
+    private readonly Dictionary<string, OrderDetail> _orderDetails = new()
     {
         ["ORD-0001"] = new()
         {
@@ -139,6 +139,36 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
         return _orderDetails.GetValueOrDefault(orderNumber);
     }
 
+    public async Task ChangeOrderStatusAsync(string orderNumber, string action, string changedBy, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        if (!_orderDetails.TryGetValue(orderNumber, out OrderDetail? orderDetails))
+        {
+            throw new InvalidOperationException("Замовлення не знайдено.");
+        }
+
+        string nextStatus = GetNextStatus(orderDetails.Status, action);
+        string previousStatus = orderDetails.Status;
+        string actor = string.IsNullOrWhiteSpace(changedBy) ? "System" : changedBy.Trim();
+
+        orderDetails.Status = nextStatus;
+        orderDetails.StatusHistory.Add(new OrderStatusHistoryItem
+        {
+            PreviousStatus = previousStatus,
+            NewStatus = nextStatus,
+            ChangedBy = actor,
+            ChangedAt = DateTime.Now,
+            Comment = GetActionComment(action)
+        });
+
+        OrderListItem? listItem = _orders.FirstOrDefault(order => order.Number == orderNumber);
+        if (listItem is not null)
+        {
+            listItem.Status = nextStatus;
+        }
+    }
+
     public async Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
         await Task.Delay(150, cancellationToken);
@@ -156,6 +186,34 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
             ShippedOrders = _orders.Count(order => order.Status == "Shipped"),
             InvoicedOrders = _orders.Count(order => order.Status == "Invoiced"),
             TotalAmount = _orders.Sum(order => order.Total)
+        };
+    }
+
+    private static string GetNextStatus(string currentStatus, string action)
+    {
+        return (currentStatus, action.ToLowerInvariant()) switch
+        {
+            ("NewOrder", "register") => "Registered",
+            ("NewOrder", "cancel") => "Cancelled",
+            ("Registered", "grant") => "Granted",
+            ("Registered", "cancel") => "Cancelled",
+            ("Granted", "ship") => "Shipped",
+            ("Granted", "cancel") => "Cancelled",
+            ("Shipped", "invoice") => "Invoiced",
+            _ => throw new InvalidOperationException("Дія недоступна для поточного стану замовлення.")
+        };
+    }
+
+    private static string GetActionComment(string action)
+    {
+        return action.ToLowerInvariant() switch
+        {
+            "register" => "Registered for processing",
+            "grant" => "Approved",
+            "ship" => "Sent to customer",
+            "invoice" => "Invoice issued",
+            "cancel" => "Cancelled",
+            _ => "Status changed"
         };
     }
 }

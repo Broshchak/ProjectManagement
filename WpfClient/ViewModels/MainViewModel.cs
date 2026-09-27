@@ -25,6 +25,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isAuthenticated;
     private bool _isLoading;
     private bool _isOrderDetailsLoading;
+    private bool _isOrderStatusActionRunning;
     private bool _isProductEditorOpen;
     private bool _isEditingProduct;
     private bool _isUserEditorOpen;
@@ -82,6 +83,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
+        ChangeOrderStatusCommand = new RelayCommand(
+            async action => await ChangeOrderStatusAsync(action as string),
+            action => CanExecuteOrderStatusAction(action as string));
         BeginAddProductCommand = new RelayCommand(_ => BeginAddProduct(), _ => CanManageProducts);
         BeginEditProductCommand = new RelayCommand(_ => BeginEditProduct(), _ => CanManageProducts && SelectedProduct is not null);
         SaveProductCommand = new RelayCommand(_ => SaveProduct(), _ => CanManageProducts && IsProductEditorOpen);
@@ -114,6 +118,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand SignOutCommand { get; }
 
     public ICommand RefreshDataCommand { get; }
+
+    public ICommand ChangeOrderStatusCommand { get; }
 
     public ICommand BeginAddProductCommand { get; }
 
@@ -264,10 +270,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _selectedOrderDetails = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedOrderDetails));
+            OnOrderStatusActionPropertiesChanged();
         }
     }
 
     public bool HasSelectedOrderDetails => SelectedOrderDetails is not null;
+
+    public bool CanRegisterOrder => CanShowOrderStatusAction("register");
+
+    public bool CanGrantOrder => CanShowOrderStatusAction("grant");
+
+    public bool CanShipOrder => CanShowOrderStatusAction("ship");
+
+    public bool CanInvoiceOrder => CanShowOrderStatusAction("invoice");
+
+    public bool CanCancelOrder => CanShowOrderStatusAction("cancel");
+
+    public bool HasAvailableOrderStatusActions =>
+        CanRegisterOrder || CanGrantOrder || CanShipOrder || CanInvoiceOrder || CanCancelOrder;
 
     public bool IsOrderDetailsLoading
     {
@@ -281,6 +301,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _isOrderDetailsLoading = value;
             OnPropertyChanged();
+        }
+    }
+
+    public bool IsOrderStatusActionRunning
+    {
+        get => _isOrderStatusActionRunning;
+        private set
+        {
+            if (_isOrderStatusActionRunning == value)
+            {
+                return;
+            }
+
+            _isOrderStatusActionRunning = value;
+            OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
@@ -712,6 +748,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanManageProducts));
         OnPropertyChanged(nameof(CanManageUsers));
         OnPropertyChanged(nameof(CanViewReports));
+        OnOrderStatusActionPropertiesChanged();
     }
 
     private async Task LoadClientDataAsync()
@@ -776,6 +813,71 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsOrderDetailsLoading = false;
         }
+    }
+
+    private async Task ChangeOrderStatusAsync(string? action)
+    {
+        if (!CanExecuteOrderStatusAction(action) || SelectedOrderDetails is null)
+        {
+            return;
+        }
+
+        string orderNumber = SelectedOrderDetails.Number;
+        IsOrderStatusActionRunning = true;
+        ApiErrorMessage = null;
+
+        try
+        {
+            await _apiClient.ChangeOrderStatusAsync(orderNumber, action!, CurrentUserName ?? "System");
+            await LoadClientDataAsync();
+        }
+        catch (Exception exception)
+        {
+            ApiErrorMessage = $"Не вдалося змінити стан замовлення. Деталі: {exception.Message}";
+        }
+        finally
+        {
+            IsOrderStatusActionRunning = false;
+        }
+    }
+
+    private bool CanExecuteOrderStatusAction(string? action)
+    {
+        return !IsOrderStatusActionRunning
+            && !IsLoading
+            && !IsOrderDetailsLoading
+            && CanShowOrderStatusAction(action);
+    }
+
+    private bool CanShowOrderStatusAction(string? action)
+    {
+        if (!CanManageOrders || SelectedOrderDetails is null || string.IsNullOrWhiteSpace(action))
+        {
+            return false;
+        }
+
+        return (SelectedOrderDetails.Status, action.ToLowerInvariant()) switch
+        {
+            ("NewOrder", "register") => true,
+            ("NewOrder", "cancel") => true,
+            ("Registered", "grant") => true,
+            ("Registered", "cancel") => true,
+            ("Granted", "ship") => true,
+            ("Granted", "cancel") => true,
+            ("Shipped", "invoice") => true,
+            _ => false
+        };
+    }
+
+    private void OnOrderStatusActionPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(CanRegisterOrder));
+        OnPropertyChanged(nameof(CanGrantOrder));
+        OnPropertyChanged(nameof(CanShipOrder));
+        OnPropertyChanged(nameof(CanInvoiceOrder));
+        OnPropertyChanged(nameof(CanCancelOrder));
+        OnPropertyChanged(nameof(HasAvailableOrderStatusActions));
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> source)

@@ -17,6 +17,16 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         return await httpClient.GetFromJsonAsync<OrderDetail>($"api/orders/{Uri.EscapeDataString(orderNumber)}", cancellationToken);
     }
 
+    public async Task ChangeOrderStatusAsync(string orderNumber, string action, string changedBy, CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(
+            $"api/orders/{Uri.EscapeDataString(orderNumber)}/{Uri.EscapeDataString(action)}",
+            new { changedBy },
+            cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
         return await httpClient.GetFromJsonAsync<List<ProductListItem>>("api/products", cancellationToken)
