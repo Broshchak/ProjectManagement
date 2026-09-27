@@ -17,6 +17,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private NavigationItem _selectedItem;
     private UserControl _currentView;
     private TestUser _selectedLoginUser;
+    private TestUser? _selectedUser;
     private OrderListItem? _selectedOrder;
     private OrderDetail? _selectedOrderDetails;
     private ProductListItem? _selectedProduct;
@@ -26,11 +27,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isOrderDetailsLoading;
     private bool _isProductEditorOpen;
     private bool _isEditingProduct;
+    private bool _isUserEditorOpen;
+    private bool _isEditingUser;
     private string? _loginError;
     private string? _apiErrorMessage;
     private string? _productEditorError;
+    private string? _userEditorError;
     private string? _currentUserName;
     private string? _currentRoleName;
+    private string _userLogin = string.Empty;
+    private string _userFullName = string.Empty;
+    private string _userRoleName = "Viewer";
+    private string _userPassword = string.Empty;
+    private bool _userIsActive = true;
+    private bool _userTelegramAllowed;
+    private string _userTelegramUserId = string.Empty;
     private string _productName = string.Empty;
     private string _productCategory = string.Empty;
     private decimal _productPrice;
@@ -75,8 +86,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         BeginEditProductCommand = new RelayCommand(_ => BeginEditProduct(), _ => CanManageProducts && SelectedProduct is not null);
         SaveProductCommand = new RelayCommand(_ => SaveProduct(), _ => CanManageProducts && IsProductEditorOpen);
         CancelProductEditCommand = new RelayCommand(_ => CloseProductEditor(), _ => IsProductEditorOpen);
+        BeginAddUserCommand = new RelayCommand(_ => BeginAddUser(), _ => CanManageUsers);
+        BeginEditUserCommand = new RelayCommand(_ => BeginEditUser(), _ => CanManageUsers && SelectedUser is not null);
+        SaveUserCommand = new RelayCommand(_ => SaveUser(), _ => CanManageUsers && IsUserEditorOpen);
+        CancelUserEditCommand = new RelayCommand(_ => CloseUserEditor(), _ => IsUserEditorOpen);
 
         _selectedLoginUser = TestUsers[0];
+        _selectedUser = TestUsers[0];
         _selectedItem = _allNavigationItems[0];
         _currentView = _selectedItem.View;
     }
@@ -91,6 +107,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<TestUser> TestUsers { get; }
 
+    public IReadOnlyList<string> RoleOptions { get; } = ["Admin", "Manager", "Viewer", "Director"];
+
     public ICommand NavigateCommand { get; }
 
     public ICommand SignOutCommand { get; }
@@ -104,6 +122,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand SaveProductCommand { get; }
 
     public ICommand CancelProductEditCommand { get; }
+
+    public ICommand BeginAddUserCommand { get; }
+
+    public ICommand BeginEditUserCommand { get; }
+
+    public ICommand SaveUserCommand { get; }
+
+    public ICommand CancelUserEditCommand { get; }
 
     public TestUser SelectedLoginUser
     {
@@ -254,6 +280,161 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             _isOrderDetailsLoading = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public TestUser? SelectedUser
+    {
+        get => _selectedUser;
+        set
+        {
+            if (_selectedUser == value)
+            {
+                return;
+            }
+
+            _selectedUser = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsUserEditorOpen
+    {
+        get => _isUserEditorOpen;
+        private set
+        {
+            if (_isUserEditorOpen == value)
+            {
+                return;
+            }
+
+            _isUserEditorOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string UserEditorTitle => _isEditingUser ? "Редагування користувача" : "Новий користувач";
+
+    public string? UserEditorError
+    {
+        get => _userEditorError;
+        private set
+        {
+            if (_userEditorError == value)
+            {
+                return;
+            }
+
+            _userEditorError = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasUserEditorError));
+        }
+    }
+
+    public bool HasUserEditorError => !string.IsNullOrWhiteSpace(UserEditorError);
+
+    public string UserLogin
+    {
+        get => _userLogin;
+        set
+        {
+            if (_userLogin == value)
+            {
+                return;
+            }
+
+            _userLogin = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string UserFullName
+    {
+        get => _userFullName;
+        set
+        {
+            if (_userFullName == value)
+            {
+                return;
+            }
+
+            _userFullName = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string UserRoleName
+    {
+        get => _userRoleName;
+        set
+        {
+            if (_userRoleName == value)
+            {
+                return;
+            }
+
+            _userRoleName = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string UserPassword
+    {
+        get => _userPassword;
+        set
+        {
+            if (_userPassword == value)
+            {
+                return;
+            }
+
+            _userPassword = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool UserIsActive
+    {
+        get => _userIsActive;
+        set
+        {
+            if (_userIsActive == value)
+            {
+                return;
+            }
+
+            _userIsActive = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool UserTelegramAllowed
+    {
+        get => _userTelegramAllowed;
+        set
+        {
+            if (_userTelegramAllowed == value)
+            {
+                return;
+            }
+
+            _userTelegramAllowed = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string UserTelegramUserId
+    {
+        get => _userTelegramUserId;
+        set
+        {
+            if (_userTelegramUserId == value)
+            {
+                return;
+            }
+
+            _userTelegramUserId = value;
             OnPropertyChanged();
         }
     }
@@ -480,6 +661,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
+        if (!SelectedLoginUser.IsActive)
+        {
+            LoginError = "Обліковий запис користувача неактивний.";
+            return false;
+        }
+
         LoginError = null;
         IsAuthenticated = true;
         CurrentUserName = SelectedLoginUser.FullName;
@@ -503,6 +690,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Products.Clear();
         SelectedProduct = null;
         CloseProductEditor();
+        CloseUserEditor();
         Summary = new ReportSummary();
         NavigationItems.Clear();
         SelectedItem = _allNavigationItems[0];
@@ -699,6 +887,148 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         ProductEditorError = null;
         IsProductEditorOpen = false;
+    }
+
+    private void BeginAddUser()
+    {
+        _isEditingUser = false;
+        UserLogin = string.Empty;
+        UserFullName = string.Empty;
+        UserRoleName = "Viewer";
+        UserPassword = string.Empty;
+        UserIsActive = true;
+        UserTelegramAllowed = false;
+        UserTelegramUserId = string.Empty;
+        UserEditorError = null;
+        IsUserEditorOpen = true;
+        OnPropertyChanged(nameof(UserEditorTitle));
+    }
+
+    private void BeginEditUser()
+    {
+        if (SelectedUser is null)
+        {
+            UserEditorError = "Оберіть користувача для редагування.";
+            return;
+        }
+
+        _isEditingUser = true;
+        UserLogin = SelectedUser.Login;
+        UserFullName = SelectedUser.FullName;
+        UserRoleName = SelectedUser.RoleName;
+        UserPassword = SelectedUser.Password;
+        UserIsActive = SelectedUser.IsActive;
+        UserTelegramAllowed = SelectedUser.TelegramAllowed;
+        UserTelegramUserId = SelectedUser.TelegramUserId?.ToString() ?? string.Empty;
+        UserEditorError = null;
+        IsUserEditorOpen = true;
+        OnPropertyChanged(nameof(UserEditorTitle));
+    }
+
+    private void SaveUser()
+    {
+        if (!ValidateUserForm(out long? telegramUserId))
+        {
+            return;
+        }
+
+        if (_isEditingUser && SelectedUser is not null)
+        {
+            SelectedUser.Login = UserLogin.Trim();
+            SelectedUser.FullName = UserFullName.Trim();
+            SelectedUser.RoleName = UserRoleName;
+            SelectedUser.Password = UserPassword;
+            SelectedUser.IsActive = UserIsActive;
+            SelectedUser.TelegramAllowed = UserTelegramAllowed;
+            SelectedUser.TelegramUserId = telegramUserId;
+
+            if (SelectedUser == SelectedLoginUser)
+            {
+                CurrentUserName = SelectedUser.FullName;
+                CurrentRoleName = SelectedUser.RoleName;
+            }
+        }
+        else
+        {
+            TestUser user = new(UserLogin.Trim(), UserFullName.Trim(), UserRoleName, UserPassword)
+            {
+                IsActive = UserIsActive,
+                TelegramAllowed = UserTelegramAllowed,
+                TelegramUserId = telegramUserId
+            };
+
+            TestUsers.Add(user);
+            SelectedUser = user;
+        }
+
+        CloseUserEditor();
+    }
+
+    private bool ValidateUserForm(out long? telegramUserId)
+    {
+        telegramUserId = null;
+
+        if (string.IsNullOrWhiteSpace(UserLogin))
+        {
+            UserEditorError = "Вкажіть логін користувача.";
+            return false;
+        }
+
+        if (TestUsers.Any(user => user != SelectedUser && string.Equals(user.Login, UserLogin.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            UserEditorError = "Користувач із таким логіном уже існує.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(UserFullName))
+        {
+            UserEditorError = "Вкажіть ПІБ користувача.";
+            return false;
+        }
+
+        if (!RoleOptions.Contains(UserRoleName))
+        {
+            UserEditorError = "Оберіть коректну роль користувача.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(UserPassword))
+        {
+            UserEditorError = "Вкажіть пароль користувача.";
+            return false;
+        }
+
+        if (UserTelegramAllowed && string.IsNullOrWhiteSpace(UserTelegramUserId))
+        {
+            UserEditorError = "Telegram User ID обов'язковий, якщо Telegram-доступ увімкнений.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(UserTelegramUserId))
+        {
+            if (!long.TryParse(UserTelegramUserId.Trim(), out long parsedTelegramUserId) || parsedTelegramUserId <= 0)
+            {
+                UserEditorError = "Telegram User ID має бути додатним числом.";
+                return false;
+            }
+
+            if (TestUsers.Any(user => user != SelectedUser && user.TelegramUserId == parsedTelegramUserId))
+            {
+                UserEditorError = "Користувач із таким Telegram User ID уже існує.";
+                return false;
+            }
+
+            telegramUserId = parsedTelegramUserId;
+        }
+
+        UserEditorError = null;
+        return true;
+    }
+
+    private void CloseUserEditor()
+    {
+        UserEditorError = null;
+        IsUserEditorOpen = false;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
