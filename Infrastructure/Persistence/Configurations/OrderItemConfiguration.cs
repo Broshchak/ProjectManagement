@@ -14,7 +14,7 @@ namespace Infrastructure.Persistence.Configurations
             builder.Property(oi => oi.OrderId).HasColumnName("order_id").IsRequired();
             builder.Property(oi => oi.ProductId).HasColumnName("product_id").IsRequired();
             builder.Property(oi => oi.Quantity).HasColumnName("quantity").IsRequired();
-            builder.Property(oi => oi.Price).HasColumnName("unit_price").HasColumnType("numeric(12, 2)").IsRequired();
+            builder.Property(oi => oi.UnitPrice).HasColumnName("unit_price").HasColumnType("numeric(12, 2)").IsRequired();
             builder.Property(oi => oi.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("NOW()");
             builder.Property(oi => oi.UpdatedAt).HasColumnName("updated_at").ValueGeneratedOnAddOrUpdate();
         }
