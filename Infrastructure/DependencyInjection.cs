@@ -1,4 +1,6 @@
-﻿using Infrastructure.Persistence;
+﻿using Application.Common.Interfaces;
+using Infrastructure.Persistence;
+using Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +17,10 @@ namespace Infrastructure
                     npgsqlOptions => npgsqlOptions.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)
                 )
             );
+
+            services.AddScoped<IOrderRepository, OrderRepository>();
+            services.AddScoped<IUnitOfWork, UnitOfWork>();
+
             return services;
         }
     }
