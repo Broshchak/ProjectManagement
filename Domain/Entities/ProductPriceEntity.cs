@@ -7,5 +7,7 @@
         public decimal Price { get; set; }
         public string CurrencyCode { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
+
+        public ProductEntity Product { get; set; } = null!;
     }
 }
