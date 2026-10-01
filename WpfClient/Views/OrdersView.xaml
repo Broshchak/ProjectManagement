@@ -17,6 +17,7 @@
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
                     <StackPanel Orientation="Horizontal">
                         <Button Content="Створити замовлення"
+                                Command="{Binding BeginCreateOrderCommand}"
                                 Style="{StaticResource ActionButtonStyle}"
                                 Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}"
                                 Margin="0,0,8,0" />
@@ -43,7 +44,8 @@
                           AutoGenerateColumns="False"
                           CanUserAddRows="False"
                           IsReadOnly="True"
-                          SelectionMode="Single">
+                          SelectionMode="Single"
+                          MouseDoubleClick="OrdersGrid_MouseDoubleClick">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Номер" Binding="{Binding Number}" Width="115" />
                         <DataGridTextColumn Header="Дата" Binding="{Binding CreatedAtText}" Width="105" />
@@ -74,7 +76,20 @@
                                Foreground="#687789"
                                Visibility="{Binding HasSelectedOrder, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
 
-                    <StackPanel Visibility="{Binding HasSelectedOrderDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Visibility="{Binding HasSelectedOrderDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Orientation="Horizontal"
+                                    Margin="0,0,0,16"
+                                    Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Button Content="Редагувати замовлення"
+                                    Command="{Binding OpenOrderEditorCommand}"
+                                    Style="{StaticResource ActionButtonStyle}" />
+                            <TextBlock Text="Редагування доступне тільки для нових і зареєстрованих замовлень"
+                                       Foreground="#687789"
+                                       VerticalAlignment="Center"
+                                       Margin="12,0,0,0"
+                                       Visibility="{Binding IsSelectedOrderEditable, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                        </StackPanel>
+
                         <Grid Margin="0,0,0,16">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="120" />
@@ -147,24 +162,6 @@
                                         Margin="0,0,8,8" />
                             </WrapPanel>
                         </StackPanel>
-
-                        <TextBlock Text="Позиції"
-                                   FontWeight="SemiBold"
-                                   Foreground="#17202B"
-                                   Margin="0,0,0,8" />
-                        <DataGrid ItemsSource="{Binding SelectedOrderDetails.Items}"
-                                  AutoGenerateColumns="False"
-                                  CanUserAddRows="False"
-                                  IsReadOnly="True"
-                                  MaxHeight="190"
-                                  Margin="0,0,0,18">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Товар" Binding="{Binding ProductName}" Width="*" />
-                                <DataGridTextColumn Header="К-сть" Binding="{Binding Quantity}" Width="70" />
-                                <DataGridTextColumn Header="Ціна" Binding="{Binding UnitPriceText}" Width="105" />
-                                <DataGridTextColumn Header="Сума" Binding="{Binding LineTotalText}" Width="105" />
-                            </DataGrid.Columns>
-                        </DataGrid>
 
                         <TextBlock Text="Історія станів"
                                    FontWeight="SemiBold"

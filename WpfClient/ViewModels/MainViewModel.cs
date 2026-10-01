@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using WpfClient.Models;
@@ -20,18 +22,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private TestUser? _selectedUser;
     private OrderListItem? _selectedOrder;
     private OrderDetail? _selectedOrderDetails;
+    private OrderDetailItem? _selectedOrderItem;
+    private CustomerListItem? _selectedOrderCustomer;
+    private ProductListItem? _selectedOrderItemProduct;
     private ProductListItem? _selectedProduct;
     private ReportSummary _summary = new();
     private bool _isAuthenticated;
     private bool _isLoading;
     private bool _isOrderDetailsLoading;
     private bool _isOrderStatusActionRunning;
+    private bool _isCreatingOrder;
     private bool _isProductEditorOpen;
     private bool _isEditingProduct;
     private bool _isUserEditorOpen;
     private bool _isEditingUser;
     private string? _loginError;
     private string? _apiErrorMessage;
+    private string? _orderItemEditorError;
     private string? _productEditorError;
     private string? _userEditorError;
     private string? _currentUserName;
@@ -43,6 +50,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _userIsActive = true;
     private bool _userTelegramAllowed;
     private string _userTelegramUserId = string.Empty;
+    private string _orderNumber = string.Empty;
+    private string _orderComment = string.Empty;
+    private int _orderItemQuantity = 1;
     private string _productName = string.Empty;
     private string _productCategory = string.Empty;
     private decimal _productPrice;
@@ -72,6 +82,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         };
 
         NavigationItems = new ObservableCollection<NavigationItem>();
+        EditableOrderItems.CollectionChanged += EditableOrderItems_CollectionChanged;
 
         NavigateCommand = new RelayCommand(item =>
         {
@@ -86,6 +97,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChangeOrderStatusCommand = new RelayCommand(
             async action => await ChangeOrderStatusAsync(action as string),
             action => CanExecuteOrderStatusAction(action as string));
+        BeginCreateOrderCommand = new RelayCommand(_ => BeginCreateOrder(), _ => CanManageOrders);
+        OpenOrderEditorCommand = new RelayCommand(_ => OpenOrderEditor(), _ => CanEditSelectedOrder);
+        OpenSelectOrderCustomerCommand = new RelayCommand(_ => OpenSelectOrderCustomerDialog(), _ => IsCreatingOrder && Customers.Count > 0);
+        OpenAddOrderProductCommand = new RelayCommand(_ => OpenAddOrderProductDialog(), _ => CanEditOrderDraft && Products.Count > 0);
+        AddOrderItemCommand = new RelayCommand(_ => AddOrderItemToDraft(), _ => CanEditOrderDraft && SelectedOrderItemProduct is not null && OrderItemQuantity > 0);
+        RemoveOrderItemCommand = new RelayCommand(_ => RemoveOrderItemFromDraft(), _ => CanEditOrderDraft && SelectedOrderItem is not null);
         BeginAddProductCommand = new RelayCommand(_ => BeginAddProduct(), _ => CanManageProducts);
         BeginEditProductCommand = new RelayCommand(_ => BeginEditProduct(), _ => CanManageProducts && SelectedProduct is not null);
         SaveProductCommand = new RelayCommand(_ => SaveProduct(), _ => CanManageProducts && IsProductEditorOpen);
@@ -107,6 +124,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<OrderListItem> Orders { get; } = [];
 
+    public ObservableCollection<OrderDetailItem> EditableOrderItems { get; } = [];
+
+    public ObservableCollection<CustomerListItem> Customers { get; } = [];
+
     public ObservableCollection<ProductListItem> Products { get; } = [];
 
     public ObservableCollection<TestUser> TestUsers { get; }
@@ -120,6 +141,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand RefreshDataCommand { get; }
 
     public ICommand ChangeOrderStatusCommand { get; }
+
+    public ICommand BeginCreateOrderCommand { get; }
+
+    public ICommand OpenOrderEditorCommand { get; }
+
+    public ICommand OpenSelectOrderCustomerCommand { get; }
+
+    public ICommand OpenAddOrderProductCommand { get; }
+
+    public ICommand AddOrderItemCommand { get; }
+
+    public ICommand RemoveOrderItemCommand { get; }
 
     public ICommand BeginAddProductCommand { get; }
 
@@ -270,11 +303,160 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _selectedOrderDetails = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedOrderDetails));
+            OnPropertyChanged(nameof(IsSelectedOrderEditable));
+            OnPropertyChanged(nameof(CanEditSelectedOrder));
+            OnPropertyChanged(nameof(CanEditOrderDraft));
             OnOrderStatusActionPropertiesChanged();
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
     public bool HasSelectedOrderDetails => SelectedOrderDetails is not null;
+
+    public bool IsSelectedOrderEditable => SelectedOrderDetails?.Status is "NewOrder" or "Registered";
+
+    public bool CanEditSelectedOrder => CanManageOrders
+        && IsSelectedOrderEditable
+        && HasSelectedOrderDetails
+        && Products.Count > 0;
+
+    public bool CanEditOrderDraft => CanManageOrders
+        && (IsCreatingOrder || IsSelectedOrderEditable)
+        && Products.Count > 0;
+
+    public bool IsCreatingOrder
+    {
+        get => _isCreatingOrder;
+        private set
+        {
+            if (_isCreatingOrder == value)
+            {
+                return;
+            }
+
+            _isCreatingOrder = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsEditingOrder));
+            OnPropertyChanged(nameof(CanEditOrderDraft));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool IsEditingOrder => !IsCreatingOrder;
+
+    public string OrderDraftTotalText => $"{EditableOrderItems.Sum(item => item.LineTotal):N2} грн";
+
+    public OrderDetailItem? SelectedOrderItem
+    {
+        get => _selectedOrderItem;
+        set
+        {
+            if (_selectedOrderItem == value)
+            {
+                return;
+            }
+
+            _selectedOrderItem = value;
+            OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public CustomerListItem? SelectedOrderCustomer
+    {
+        get => _selectedOrderCustomer;
+        set
+        {
+            if (_selectedOrderCustomer == value)
+            {
+                return;
+            }
+
+            _selectedOrderCustomer = value;
+            OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public ProductListItem? SelectedOrderItemProduct
+    {
+        get => _selectedOrderItemProduct;
+        set
+        {
+            if (_selectedOrderItemProduct == value)
+            {
+                return;
+            }
+
+            _selectedOrderItemProduct = value;
+            OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public string? OrderItemEditorError
+    {
+        get => _orderItemEditorError;
+        private set
+        {
+            if (_orderItemEditorError == value)
+            {
+                return;
+            }
+
+            _orderItemEditorError = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasOrderItemEditorError));
+        }
+    }
+
+    public bool HasOrderItemEditorError => !string.IsNullOrWhiteSpace(OrderItemEditorError);
+
+    public string OrderNumber
+    {
+        get => _orderNumber;
+        set
+        {
+            if (_orderNumber == value)
+            {
+                return;
+            }
+
+            _orderNumber = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string OrderComment
+    {
+        get => _orderComment;
+        set
+        {
+            if (_orderComment == value)
+            {
+                return;
+            }
+
+            _orderComment = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int OrderItemQuantity
+    {
+        get => _orderItemQuantity;
+        set
+        {
+            if (_orderItemQuantity == value)
+            {
+                return;
+            }
+
+            _orderItemQuantity = value;
+            OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
 
     public bool CanRegisterOrder => CanShowOrderStatusAction("register");
 
@@ -301,6 +483,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _isOrderDetailsLoading = value;
             OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
@@ -724,7 +907,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedOrder = null;
         SelectedOrderDetails = null;
         Products.Clear();
+        Customers.Clear();
         SelectedProduct = null;
+        EditableOrderItems.Clear();
+        SelectedOrderItem = null;
+        IsCreatingOrder = false;
         CloseProductEditor();
         CloseUserEditor();
         Summary = new ReportSummary();
@@ -748,6 +935,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanManageProducts));
         OnPropertyChanged(nameof(CanManageUsers));
         OnPropertyChanged(nameof(CanViewReports));
+        OnPropertyChanged(nameof(CanEditSelectedOrder));
         OnOrderStatusActionPropertiesChanged();
     }
 
@@ -758,13 +946,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            string? selectedOrderNumber = SelectedOrder?.Number;
+            int? selectedOrderId = SelectedOrder?.Id;
             IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
             IReadOnlyList<ProductListItem> products = await _apiClient.GetProductsAsync();
-            ReportSummary summary = await _apiClient.GetReportSummaryAsync();
 
             ReplaceCollection(Orders, orders);
-            OrderListItem? nextSelectedOrder = Orders.FirstOrDefault(order => order.Number == selectedOrderNumber)
+            RefreshCustomersFromOrders(orders);
+            OrderListItem? nextSelectedOrder = Orders.FirstOrDefault(order => order.Id == selectedOrderId)
                 ?? Orders.FirstOrDefault();
 
             if (SelectedOrder == nextSelectedOrder)
@@ -778,7 +966,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             ReplaceCollection(Products, products);
             SelectedProduct = Products.FirstOrDefault();
-            Summary = summary;
+            SelectedOrderItemProduct ??= Products.FirstOrDefault(product => product.IsActive) ?? Products.FirstOrDefault();
+            OnPropertyChanged(nameof(CanEditSelectedOrder));
+            OnPropertyChanged(nameof(CanEditOrderDraft));
+            Summary = BuildReportSummary(orders);
         }
         catch (Exception exception)
         {
@@ -802,11 +993,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            SelectedOrderDetails = await _apiClient.GetOrderDetailsAsync(SelectedOrder.Number);
+            OrderDetail? details = await _apiClient.GetOrderDetailsAsync(SelectedOrder.Id);
+            SelectedOrderDetails = null;
+            SelectedOrderDetails = details;
+            SelectedOrderItem = details?.Items.FirstOrDefault();
         }
         catch (Exception exception)
         {
             SelectedOrderDetails = null;
+            SelectedOrderItem = null;
             ApiErrorMessage = $"Не вдалося отримати деталі замовлення. Деталі: {exception.Message}";
         }
         finally
@@ -851,7 +1046,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool CanShowOrderStatusAction(string? action)
     {
-        if (!CanManageOrders || SelectedOrderDetails is null || string.IsNullOrWhiteSpace(action))
+        if (!_apiSettings.UseMockData || !CanManageOrders || SelectedOrderDetails is null || string.IsNullOrWhiteSpace(action))
         {
             return false;
         }
@@ -878,6 +1073,398 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanCancelOrder));
         OnPropertyChanged(nameof(HasAvailableOrderStatusActions));
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void BeginCreateOrder()
+    {
+        IsCreatingOrder = true;
+        OrderNumber = $"ORD-{DateTime.Now:yyyyMMdd-HHmmss}";
+        OrderComment = string.Empty;
+        EditableOrderItems.Clear();
+        SelectedOrderItem = null;
+        SelectedOrderCustomer = Customers.FirstOrDefault();
+        OrderItemEditorError = null;
+
+        OpenOrderEditorWindow();
+    }
+
+    private void OpenOrderEditor()
+    {
+        if (!CanEditSelectedOrder || SelectedOrderDetails is null)
+        {
+            return;
+        }
+
+        IsCreatingOrder = false;
+        OrderNumber = SelectedOrderDetails.Number;
+        SelectedOrderCustomer = Customers.FirstOrDefault(customer => customer.Id == SelectedOrderDetails.CustomerId)
+            ?? new CustomerListItem { Id = SelectedOrderDetails.CustomerId, FullName = SelectedOrderDetails.Customer };
+        OrderComment = SelectedOrderDetails.Comment ?? string.Empty;
+        EditableOrderItems.Clear();
+
+        foreach (OrderDetailItem item in SelectedOrderDetails.Items)
+        {
+            EditableOrderItems.Add(CloneOrderItem(item));
+        }
+
+        SelectedOrderItem = EditableOrderItems.FirstOrDefault();
+        OnPropertyChanged(nameof(OrderDraftTotalText));
+        OrderItemEditorError = null;
+
+        OpenOrderEditorWindow();
+    }
+
+    private void OpenOrderEditorWindow()
+    {
+        try
+        {
+            OrderEditorWindow window = new()
+            {
+                DataContext = this,
+                Owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(item => item.IsActive),
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            window.ShowDialog();
+        }
+        catch (Exception exception)
+        {
+            OrderItemEditorError = $"Не вдалося відкрити редактор замовлення. Деталі: {exception.Message}";
+            MessageBox.Show(
+                exception.Message,
+                "Помилка редактора замовлення",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void OpenAddOrderProductDialog()
+    {
+        if (!CanEditOrderDraft)
+        {
+            return;
+        }
+
+        SelectedOrderItemProduct = Products.FirstOrDefault(product => product.IsActive) ?? Products.FirstOrDefault();
+        OrderItemQuantity = 1;
+        OrderItemEditorError = null;
+
+        AddOrderProductWindow window = new()
+        {
+            DataContext = this,
+            Owner = Application.Current.Windows.OfType<OrderEditorWindow>().FirstOrDefault(item => item.IsActive)
+                ?? Application.Current.Windows.OfType<Window>().FirstOrDefault(item => item.IsActive),
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+
+        window.ShowDialog();
+    }
+
+    private void OpenSelectOrderCustomerDialog()
+    {
+        CustomerSelectionWindow window = new()
+        {
+            DataContext = this,
+            Owner = Application.Current.Windows.OfType<OrderEditorWindow>().FirstOrDefault(item => item.IsActive)
+                ?? Application.Current.Windows.OfType<Window>().FirstOrDefault(item => item.IsActive),
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+
+        window.ShowDialog();
+    }
+
+    private void AddOrderItemToDraft()
+    {
+        if (!ValidateOrderItemForm())
+        {
+            return;
+        }
+
+        ProductListItem product = SelectedOrderItemProduct!;
+        if (!HasAvailableStock(product.Id, OrderItemQuantity, out string? stockError))
+        {
+            OrderItemEditorError = stockError;
+            return;
+        }
+
+        OrderDetailItem? existingItem = EditableOrderItems.FirstOrDefault(item => item.ProductId == product.Id);
+
+        if (existingItem is not null)
+        {
+            existingItem.Quantity += OrderItemQuantity;
+            SelectedOrderItem = existingItem;
+        }
+        else
+        {
+            OrderDetailItem item = new()
+            {
+                Id = 0,
+                ProductId = product.Id,
+                ProductName = product.Name,
+                Quantity = OrderItemQuantity,
+                UnitPrice = product.Price,
+                LineTotal = product.Price * OrderItemQuantity
+            };
+
+            EditableOrderItems.Add(item);
+            SelectedOrderItem = item;
+        }
+
+        OrderItemEditorError = null;
+        OnPropertyChanged(nameof(OrderDraftTotalText));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void RemoveOrderItemFromDraft()
+    {
+        if (SelectedOrderItem is null)
+        {
+            return;
+        }
+
+        int index = EditableOrderItems.IndexOf(SelectedOrderItem);
+        EditableOrderItems.Remove(SelectedOrderItem);
+        SelectedOrderItem = EditableOrderItems.ElementAtOrDefault(Math.Min(index, EditableOrderItems.Count - 1));
+        OrderItemEditorError = null;
+        OnPropertyChanged(nameof(OrderDraftTotalText));
+    }
+
+    public async Task<bool> SaveOrderEditorAsync()
+    {
+        if (!ValidateOrderDraft())
+        {
+            return false;
+        }
+
+        ApiErrorMessage = null;
+        IsOrderDetailsLoading = true;
+
+        try
+        {
+            if (IsCreatingOrder)
+            {
+                OrderDetail createdOrder = await _apiClient.CreateOrderAsync(new CreateOrderRequest
+                {
+                    OrderNumber = OrderNumber.Trim(),
+                    CustomerId = SelectedOrderCustomer!.Id,
+                    Comment = string.IsNullOrWhiteSpace(OrderComment) ? null : OrderComment.Trim(),
+                    Items = EditableOrderItems
+                        .Select(item => new CreateOrderItemRequest { ProductId = item.ProductId, Quantity = item.Quantity })
+                        .ToList()
+                });
+
+                await LoadClientDataAsync();
+                SelectedOrder = Orders.FirstOrDefault(order => order.Id == createdOrder.Id) ?? Orders.FirstOrDefault();
+            }
+            else if (SelectedOrderDetails is not null)
+            {
+                await SaveEditedOrderItemsAsync(SelectedOrderDetails);
+                await LoadClientDataAsync();
+                await LoadSelectedOrderDetailsAsync();
+            }
+
+            IsCreatingOrder = false;
+            OrderItemEditorError = null;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            OrderItemEditorError = $"Не вдалося зберегти замовлення. Деталі: {exception.Message}";
+            return false;
+        }
+        finally
+        {
+            IsOrderDetailsLoading = false;
+        }
+    }
+
+    private async Task SaveEditedOrderItemsAsync(OrderDetail order)
+    {
+        foreach (OrderDetailItem originalItem in order.Items.Where(original => EditableOrderItems.All(item => item.Id != original.Id)))
+        {
+            await _apiClient.RemoveOrderItemAsync(order.Id, originalItem.Id);
+        }
+
+        foreach (OrderDetailItem item in EditableOrderItems)
+        {
+            if (item.Id == 0)
+            {
+                await _apiClient.AddOrderItemAsync(order.Id, new CreateOrderItemRequest
+                {
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity
+                });
+                continue;
+            }
+
+            OrderDetailItem? originalItem = order.Items.FirstOrDefault(original => original.Id == item.Id);
+            if (originalItem is not null && originalItem.Quantity != item.Quantity)
+            {
+                await _apiClient.ReplaceOrderItemAsync(order.Id, item.Id, new CreateOrderItemRequest
+                {
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity
+                });
+            }
+        }
+    }
+
+    private bool ValidateOrderDraft()
+    {
+        if (IsCreatingOrder)
+        {
+            if (string.IsNullOrWhiteSpace(OrderNumber))
+            {
+                OrderItemEditorError = "Вкажіть номер замовлення.";
+                return false;
+            }
+
+            if (SelectedOrderCustomer is null)
+            {
+                OrderItemEditorError = "Оберіть клієнта.";
+                return false;
+            }
+        }
+
+        if (EditableOrderItems.Count == 0)
+        {
+            OrderItemEditorError = "Додайте хоча б один товар.";
+            return false;
+        }
+
+        if (EditableOrderItems.Any(item => item.Quantity <= 0))
+        {
+            OrderItemEditorError = "Кількість товару має бути більшою за 0.";
+            return false;
+        }
+
+        string? stockError = EditableOrderItems
+            .GroupBy(item => item.ProductId)
+            .Select(group => GetStockError(group.Key, group.Sum(item => item.Quantity)))
+            .FirstOrDefault(error => error is not null);
+
+        if (stockError is not null)
+        {
+            OrderItemEditorError = stockError;
+            return false;
+        }
+
+        OrderItemEditorError = null;
+        return true;
+    }
+
+    private static OrderDetailItem CloneOrderItem(OrderDetailItem item)
+    {
+        return new OrderDetailItem
+        {
+            Id = item.Id,
+            ProductId = item.ProductId,
+            ProductName = item.ProductName,
+            Quantity = item.Quantity,
+            UnitPrice = item.UnitPrice,
+            LineTotal = item.LineTotal
+        };
+    }
+
+    private bool HasAvailableStock(int productId, int quantityToAdd, out string? error)
+    {
+        int requestedQuantity = EditableOrderItems
+            .Where(item => item.ProductId == productId)
+            .Sum(item => item.Quantity) + quantityToAdd;
+
+        error = GetStockError(productId, requestedQuantity);
+        return error is null;
+    }
+
+    private string? GetStockError(int productId, int requestedQuantity)
+    {
+        ProductListItem? product = Products.FirstOrDefault(item => item.Id == productId);
+        return product is not null && requestedQuantity > product.Quantity
+            ? $"Недостатньо товару '{product.Name}'. Доступно: {product.Quantity}."
+            : null;
+    }
+
+    private static ReportSummary BuildReportSummary(IEnumerable<OrderListItem> orders)
+    {
+        return new ReportSummary
+        {
+            NewOrders = orders.Count(order => order.Status == "NewOrder"),
+            OrdersInProgress = orders.Count(order => order.Status is "Registered" or "Granted"),
+            ShippedOrders = orders.Count(order => order.Status == "Shipped"),
+            InvoicedOrders = orders.Count(order => order.Status == "Invoiced"),
+            TotalAmount = orders.Sum(order => order.Total)
+        };
+    }
+
+    private void EditableOrderItems_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+        {
+            foreach (OrderDetailItem item in e.OldItems)
+            {
+                item.PropertyChanged -= EditableOrderItem_PropertyChanged;
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (OrderDetailItem item in e.NewItems)
+            {
+                item.PropertyChanged += EditableOrderItem_PropertyChanged;
+            }
+        }
+
+        OnPropertyChanged(nameof(OrderDraftTotalText));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void EditableOrderItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(OrderDetailItem.Quantity) || e.PropertyName == nameof(OrderDetailItem.LineTotalText))
+        {
+            OnPropertyChanged(nameof(OrderDraftTotalText));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private void RefreshCustomersFromOrders(IEnumerable<OrderListItem> orders)
+    {
+        Dictionary<int, CustomerListItem> customers = LocalCatalog.CreateCustomers()
+            .ToDictionary(customer => customer.Id);
+
+        foreach (OrderListItem order in orders)
+        {
+            if (order.CustomerId <= 0 || customers.ContainsKey(order.CustomerId))
+            {
+                continue;
+            }
+
+            customers[order.CustomerId] = new CustomerListItem
+            {
+                Id = order.CustomerId,
+                FullName = order.Customer
+            };
+        }
+
+        ReplaceCollection(Customers, customers.Values.OrderBy(customer => customer.FullName));
+    }
+
+    private bool ValidateOrderItemForm()
+    {
+        if (SelectedOrderItemProduct is null)
+        {
+            OrderItemEditorError = "Оберіть товар.";
+            return false;
+        }
+
+        if (OrderItemQuantity <= 0)
+        {
+            OrderItemEditorError = "Кількість товару має бути більшою за 0.";
+            return false;
+        }
+
+        OrderItemEditorError = null;
+        return true;
     }
 
     private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> source)
