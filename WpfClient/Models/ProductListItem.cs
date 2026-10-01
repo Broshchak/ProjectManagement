@@ -5,6 +5,7 @@ namespace WpfClient.Models;
 
 public sealed class ProductListItem : INotifyPropertyChanged
 {
+    private int _id;
     private string _name = string.Empty;
     private string _category = string.Empty;
     private decimal _price;
@@ -12,6 +13,21 @@ public sealed class ProductListItem : INotifyPropertyChanged
     private bool _isActive = true;
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public int Id
+    {
+        get => _id;
+        set
+        {
+            if (_id == value)
+            {
+                return;
+            }
+
+            _id = value;
+            OnPropertyChanged();
+        }
+    }
 
     public string Name
     {
@@ -25,6 +41,7 @@ public sealed class ProductListItem : INotifyPropertyChanged
 
             _name = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayName));
         }
     }
 
@@ -56,6 +73,7 @@ public sealed class ProductListItem : INotifyPropertyChanged
             _price = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(PriceText));
+            OnPropertyChanged(nameof(DisplayName));
         }
     }
 
@@ -93,6 +111,8 @@ public sealed class ProductListItem : INotifyPropertyChanged
     public string PriceText => $"{Price:N2} грн";
 
     public string ActiveText => IsActive ? "Активний" : "Неактивний";
+
+    public string DisplayName => $"{Name} - {PriceText}";
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

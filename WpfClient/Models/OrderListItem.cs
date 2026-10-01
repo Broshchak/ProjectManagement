@@ -2,6 +2,10 @@ namespace WpfClient.Models;
 
 public sealed class OrderListItem
 {
+    public int Id { get; set; }
+
+    public int CustomerId { get; set; }
+
     public string Number { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; }
