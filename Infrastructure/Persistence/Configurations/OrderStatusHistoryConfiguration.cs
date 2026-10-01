@@ -17,6 +17,28 @@ namespace Infrastructure.Persistence.Configurations
             builder.Property(ost => ost.ChangedByUserId).HasColumnName("changed_by_user_id").IsRequired();
             builder.Property(ost => ost.ChangedAt).HasColumnName("changed_at").HasDefaultValueSql("NOW()");
             builder.Property(ost => ost.Comment).HasColumnName("comment");
+
+
+            builder.HasOne(h => h.Order)
+                .WithMany(o => o.StatusHistory)
+                .HasForeignKey(h => h.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasOne(h => h.PreviousStatus)
+                .WithMany()
+                .HasForeignKey(h => h.PreviousStatusId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+
+            builder.HasOne(h => h.NewStatus)
+                .WithMany()
+                .HasForeignKey(h => h.NewStatusId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne(h => h.ChangedByUser)
+                .WithMany()
+                .HasForeignKey(h => h.ChangedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

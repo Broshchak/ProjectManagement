@@ -9,5 +9,8 @@
         public decimal UnitPrice { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        public OrderEntity Order { get; set; } = null!;
+        public ProductEntity Product { get; set; } = null!;
     }
 }

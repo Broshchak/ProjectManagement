@@ -10,5 +10,11 @@
         public string? Comment { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        public OrderStatusEntity Status { get; set; } = null!;
+        public CustomerEntity Customer { get; set; } = null!;
+        public AppUserEntity CreatedByUser { get; set; } = null!;
+        public ICollection<OrderItemEntity> Items { get; set; } = new List<OrderItemEntity>();
+        public ICollection<OrderStatusHistoryEntity> StatusHistory { get; set; } = new List<OrderStatusHistoryEntity>();
     }
 }

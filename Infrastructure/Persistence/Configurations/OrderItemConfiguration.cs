@@ -17,6 +17,16 @@ namespace Infrastructure.Persistence.Configurations
             builder.Property(oi => oi.UnitPrice).HasColumnName("unit_price").HasColumnType("numeric(12, 2)").IsRequired();
             builder.Property(oi => oi.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("NOW()");
             builder.Property(oi => oi.UpdatedAt).HasColumnName("updated_at").ValueGeneratedOnAddOrUpdate();
+
+            builder.HasOne(oi => oi.Order)
+                .WithMany(o => o.Items)
+                .HasForeignKey(oi => oi.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasOne(oi => oi.Product)
+                .WithMany()
+                .HasForeignKey(oi => oi.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }
