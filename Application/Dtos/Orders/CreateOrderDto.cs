@@ -1,9 +1,11 @@
-﻿namespace Application.Dtos.Orders
+using System.ComponentModel.DataAnnotations;
+
+namespace Application.Dtos.Orders
 {
     public record CreateOrderDto(
-        string OrderNumber,
-        int CustomerId,
+        [Required, StringLength(40)] string OrderNumber,
+        [Range(1, int.MaxValue)] int CustomerId,
         string? Comment,
-        IReadOnlyCollection<CreateOrderItemDto> Items
+        [Required, MinLength(1)] IReadOnlyCollection<CreateOrderItemDto> Items
     );
 }

@@ -9,8 +9,10 @@
         public string FullName { get; set; } = string.Empty;
         public bool TelegramAllowed { get; set; }
         public long? TelegramUserId { get; set; }
-        public bool IsActive { get; set; }
+        public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        public RoleEntity Role { get; set; } = null!;
     }
 }

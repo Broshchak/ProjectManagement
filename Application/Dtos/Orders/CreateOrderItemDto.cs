@@ -1,7 +1,9 @@
-﻿namespace Application.Dtos.Orders
+using System.ComponentModel.DataAnnotations;
+
+namespace Application.Dtos.Orders
 {
     public record CreateOrderItemDto(
-        int ProductId,
-        int Quantity
+        [Range(1, int.MaxValue)] int ProductId,
+        [Range(1, int.MaxValue)] int Quantity
     );
 }

@@ -1,4 +1,4 @@
-namespace Domain.Entities
+﻿namespace Domain.Entities
 {
     public class ProductStockEntity
     {
@@ -6,5 +6,7 @@ namespace Domain.Entities
         public int ProductId { get; set; }
         public int Quantity { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        public ProductEntity Product { get; set; } = null!;
     }
 }

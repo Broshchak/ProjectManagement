@@ -1,4 +1,4 @@
-﻿using Domain.Entities;
+using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -9,15 +9,17 @@ namespace Infrastructure.Persistence.Configurations
         public void Configure(EntityTypeBuilder<OrderStatusHistoryEntity> builder)
         {
             builder.ToTable("order_status_history");
-            builder.HasKey(ost => ost.Id);
-            builder.Property(ost => ost.Id).HasColumnName("id").UseIdentityByDefaultColumn();
-            builder.Property(ost => ost.OrderId).HasColumnName("order_id").IsRequired();
-            builder.Property(ost => ost.PreviousStatusId).HasColumnName("previous_status_id");
-            builder.Property(ost => ost.NewStatusId).HasColumnName("new_status_id").IsRequired();
-            builder.Property(ost => ost.ChangedByUserId).HasColumnName("changed_by_user_id").IsRequired();
-            builder.Property(ost => ost.ChangedAt).HasColumnName("changed_at").HasDefaultValueSql("NOW()");
-            builder.Property(ost => ost.Comment).HasColumnName("comment");
-
+            builder.HasKey(h => h.Id);
+            builder.Property(h => h.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+            builder.Property(h => h.OrderId).HasColumnName("order_id").IsRequired();
+            builder.Property(h => h.PreviousStatusId).HasColumnName("previous_status_id");
+            builder.Property(h => h.NewStatusId).HasColumnName("new_status_id").IsRequired();
+            builder.Property(h => h.ChangedByUserId).HasColumnName("changed_by_user_id")
+                .IsRequired();
+            builder.Property(h => h.ChangedAt).HasColumnName("changed_at")
+                .HasColumnType("timestamp with time zone")
+                .HasDefaultValueSql("NOW()").ValueGeneratedOnAdd();
+            builder.Property(h => h.Comment).HasColumnName("comment").HasColumnType("text");
 
             builder.HasOne(h => h.Order)
                 .WithMany(o => o.StatusHistory)
@@ -39,6 +41,11 @@ namespace Infrastructure.Persistence.Configurations
                 .WithMany()
                 .HasForeignKey(h => h.ChangedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasIndex(h => h.OrderId)
+                .HasDatabaseName("ix_order_status_history_order_id");
+            builder.HasIndex(h => h.ChangedAt)
+                .HasDatabaseName("ix_order_status_history_changed_at");
         }
     }
 }
