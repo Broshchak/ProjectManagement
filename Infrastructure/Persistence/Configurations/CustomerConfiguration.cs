@@ -1,4 +1,4 @@
-﻿using Domain.Entities;
+using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -11,13 +11,19 @@ namespace Infrastructure.Persistence.Configurations
             builder.ToTable("customers");
             builder.HasKey(c => c.Id);
             builder.Property(c => c.Id).HasColumnName("id").UseIdentityByDefaultColumn();
-            builder.Property(c => c.FullName).HasColumnName("full_name").HasMaxLength(150).IsRequired();
+            builder.Property(c => c.FullName).HasColumnName("full_name")
+                .HasMaxLength(150).IsRequired();
             builder.Property(c => c.Phone).HasColumnName("phone").HasMaxLength(40);
             builder.Property(c => c.Email).HasColumnName("email").HasMaxLength(160);
-            builder.Property(c => c.Address).HasColumnName("address");
-            builder.Property(c => c.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("NOW()");
-            builder.Property(c => c.UpdatedAt).HasColumnName("updated_at").ValueGeneratedOnAddOrUpdate();
-            builder.HasIndex(c => c.Email).IsUnique();
+            builder.Property(c => c.Address).HasColumnName("address").HasColumnType("text");
+            builder.Property(c => c.CreatedAt).HasColumnName("created_at")
+                .HasColumnType("timestamp with time zone")
+                .HasDefaultValueSql("NOW()").ValueGeneratedOnAdd();
+            builder.Property(c => c.UpdatedAt).HasColumnName("updated_at")
+                .HasColumnType("timestamp with time zone")
+                .HasDefaultValueSql("NOW()").ValueGeneratedOnAddOrUpdate();
+
+            builder.HasIndex(c => c.Email).IsUnique().HasDatabaseName("uq_customers_email");
         }
     }
 }
