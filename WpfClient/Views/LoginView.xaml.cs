@@ -11,16 +11,16 @@ public partial class LoginView : UserControl
         InitializeComponent();
     }
 
-    private void SignIn_Click(object sender, System.Windows.RoutedEventArgs e)
+    private async void SignIn_Click(object sender, System.Windows.RoutedEventArgs e)
     {
-        TrySignIn();
+        await TrySignInAsync();
     }
 
-    private void PasswordInput_KeyDown(object sender, KeyEventArgs e)
+    private async void PasswordInput_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
         {
-            TrySignIn();
+            await TrySignInAsync();
         }
     }
 
@@ -30,9 +30,9 @@ public partial class LoginView : UserControl
         PasswordInput.Focus();
     }
 
-    private void TrySignIn()
+    private async Task TrySignInAsync()
     {
-        if (DataContext is MainViewModel viewModel && viewModel.SignIn(PasswordInput.Password))
+        if (DataContext is MainViewModel viewModel && await viewModel.SignInAsync(PasswordInput.Password))
         {
             PasswordInput.Clear();
         }

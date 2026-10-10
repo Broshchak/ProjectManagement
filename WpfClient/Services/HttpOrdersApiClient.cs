@@ -1,11 +1,47 @@
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using WpfClient.Models;
 
 namespace WpfClient.Services;
 
-public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient
+public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient, IAuthApiClient
 {
+    public async Task<AuthenticatedUser> SignInAsync(string login, string password, CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage loginResponse = await httpClient.PostAsJsonAsync(
+            "api/auth/login",
+            new LoginRequest(login, password),
+            cancellationToken);
+
+        loginResponse.EnsureSuccessStatusCode();
+
+        LoginResponse? token = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>(cancellationToken);
+        if (token is null || string.IsNullOrWhiteSpace(token.AccessToken))
+        {
+            throw new InvalidOperationException("API не повернув токен авторизації.");
+        }
+
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            token.TokenType,
+            token.AccessToken);
+
+        CurrentUserResponse? currentUser = await httpClient.GetFromJsonAsync<CurrentUserResponse>("api/auth/me", cancellationToken);
+        return currentUser is null
+            ? throw new InvalidOperationException("API не повернув поточного користувача.")
+            : new AuthenticatedUser
+            {
+                Login = currentUser.Login,
+                FullName = currentUser.FullName,
+                Role = currentUser.Role
+            };
+    }
+
+    public void SignOut()
+    {
+        httpClient.DefaultRequestHeaders.Authorization = null;
+    }
+
     public async Task<IReadOnlyList<OrderListItem>> GetOrdersAsync(CancellationToken cancellationToken = default)
     {
         List<OrderSummaryResponse> orders = await httpClient.GetFromJsonAsync<List<OrderSummaryResponse>>("api/orders", cancellationToken)
@@ -179,4 +215,21 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         public string? Comment { get; set; }
     }
 
+    private sealed record LoginRequest(string Login, string Password);
+
+    private sealed class LoginResponse
+    {
+        public string AccessToken { get; set; } = string.Empty;
+
+        public string TokenType { get; set; } = "Bearer";
+    }
+
+    private sealed class CurrentUserResponse
+    {
+        public string Login { get; set; } = string.Empty;
+
+        public string FullName { get; set; } = string.Empty;
+
+        public string Role { get; set; } = string.Empty;
+    }
 }

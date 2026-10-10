@@ -866,7 +866,50 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool CanViewReports => CurrentRoleName is "Admin" or "Viewer" or "Director";
 
-    public bool SignIn(string password)
+    public async Task<bool> SignInAsync(string password)
+    {
+        if (_apiSettings.UseMockData)
+        {
+            return SignInLocally(password);
+        }
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            LoginError = "Введіть пароль.";
+            return false;
+        }
+
+        if (_apiClient is not IAuthApiClient authApiClient)
+        {
+            LoginError = "API-клієнт не підтримує авторизацію.";
+            return false;
+        }
+
+        try
+        {
+            AuthenticatedUser user = await authApiClient.SignInAsync(SelectedLoginUser.Login, password);
+
+            LoginError = null;
+            IsAuthenticated = true;
+            CurrentUserName = user.FullName;
+            CurrentRoleName = user.Role;
+
+            if (NavigationItems.Count > 0)
+            {
+                SelectedItem = NavigationItems[0];
+            }
+
+            await LoadClientDataAsync();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            LoginError = $"Не вдалося увійти через API. Деталі: {exception.Message}";
+            return false;
+        }
+    }
+
+    private bool SignInLocally(string password)
     {
         if (string.IsNullOrWhiteSpace(password))
         {
@@ -890,7 +933,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsAuthenticated = true;
         CurrentUserName = SelectedLoginUser.FullName;
         CurrentRoleName = SelectedLoginUser.RoleName;
-        SelectedItem = NavigationItems[0];
+        if (NavigationItems.Count > 0)
+        {
+            SelectedItem = NavigationItems[0];
+        }
+
         _ = LoadClientDataAsync();
 
         return true;
@@ -898,6 +945,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void SignOut()
     {
+        if (_apiClient is IAuthApiClient authApiClient)
+        {
+            authApiClient.SignOut();
+        }
+
         IsAuthenticated = false;
         CurrentUserName = null;
         CurrentRoleName = null;

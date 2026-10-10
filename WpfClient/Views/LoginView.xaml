@@ -21,7 +21,7 @@
                            FontSize="26"
                            FontWeight="SemiBold"
                            Foreground="#17202B" />
-                <TextBlock Text="Оберіть тестового користувача і введіть пароль."
+                <TextBlock Text="Оберіть користувача і введіть пароль."
                            TextWrapping="Wrap"
                            Foreground="#687789"
                            Margin="0,6,0,24" />
@@ -73,7 +73,7 @@
                         Click="SignIn_Click"
                         Style="{StaticResource ActionButtonStyle}" />
 
-                <TextBlock Text="Тестові паролі збігаються з логінами: admin, manager, viewer, director."
+                <TextBlock Text="Для навчальних даних паролі збігаються з логінами: admin, manager, viewer, director."
                            Foreground="#687789"
                            TextWrapping="Wrap"
                            FontSize="12"
