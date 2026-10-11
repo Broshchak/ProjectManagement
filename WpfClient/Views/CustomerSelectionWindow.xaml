@@ -1,7 +1,8 @@
 <Window x:Class="WpfClient.Views.CustomerSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Вибір клієнта"
+        xmlns:models="clr-namespace:WpfClient.Models"
+        Title="{Binding Path=T[CustomerSelection]}"
         Width="720"
         Height="460"
         MinWidth="620"
@@ -16,7 +17,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="Клієнти"
+            <TextBlock Text="{Binding Path=T[Customers]}"
                        FontSize="20"
                        FontWeight="SemiBold"
                        Foreground="#17202B"
@@ -40,9 +41,9 @@
                       IsReadOnly="True"
                       MouseDoubleClick="CustomersGrid_MouseDoubleClick">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Клієнт" Binding="{Binding FullName}" Width="*" />
-                    <DataGridTextColumn Header="Телефон" Binding="{Binding Phone}" Width="150" />
-                    <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="220" />
+                    <DataGridTextColumn Header="{Binding Path=[Customer], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding FullName}" Width="*" />
+                    <DataGridTextColumn Header="{Binding Path=[Phone], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Phone}" Width="150" />
+                    <DataGridTextColumn Header="{Binding Path=[Email], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Email}" Width="220" />
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
@@ -51,12 +52,12 @@
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,14,0,0">
-            <Button Content="Вибрати"
+            <Button Content="{Binding Path=T[Choose]}"
                     Width="110"
                     Style="{StaticResource ActionButtonStyle}"
                     Margin="0,0,8,0"
                     Click="SelectButton_Click" />
-            <Button Content="Закрити"
+            <Button Content="{Binding Path=T[Close]}"
                     Width="110"
                     Style="{StaticResource ActionButtonStyle}"
                     Click="CloseButton_Click" />

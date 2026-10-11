@@ -11,22 +11,50 @@
                 BorderThickness="1"
                 CornerRadius="8">
             <StackPanel>
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,0,0,14">
+                    <TextBlock Text="{Binding Path=T[Language]}"
+                               Foreground="#687789"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <ComboBox ItemsSource="{Binding LanguageOptions}"
+                              SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
+                              HorizontalContentAlignment="Stretch"
+                              VerticalContentAlignment="Center"
+                              MinWidth="120"
+                              MinHeight="30">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}"
+                                           TextAlignment="Center"
+                                           HorizontalAlignment="Stretch" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
+                </StackPanel>
+
                 <Image Source="pack://application:,,,/Assets/app-icon.png"
                        Width="72"
                        Height="72"
                        HorizontalAlignment="Left"
                        Margin="0,0,0,18" />
 
-                <TextBlock Text="Вхід до системи"
+                <TextBlock Text="{Binding Path=T[LoginTitle]}"
                            FontSize="26"
                            FontWeight="SemiBold"
                            Foreground="#17202B" />
-                <TextBlock Text="Оберіть користувача і введіть пароль."
+                <TextBlock Text="{Binding Path=T[LoginSubtitle]}"
                            TextWrapping="Wrap"
                            Foreground="#687789"
                            Margin="0,6,0,24" />
 
-                <TextBlock Text="Користувач"
+                <TextBlock Text="{Binding Path=T[User]}"
                            Foreground="#3B4754"
                            FontWeight="SemiBold"
                            Margin="0,0,0,6" />
@@ -38,7 +66,7 @@
                           VerticalContentAlignment="Center"
                           Margin="0,0,0,16" />
 
-                <TextBlock Text="Пароль"
+                <TextBlock Text="{Binding Path=T[Password]}"
                            Foreground="#3B4754"
                            FontWeight="SemiBold"
                            Margin="0,0,0,6" />
@@ -69,11 +97,11 @@
                                TextWrapping="Wrap" />
                 </Border>
 
-                <Button Content="Увійти"
+                <Button Content="{Binding Path=T[SignIn]}"
                         Click="SignIn_Click"
                         Style="{StaticResource ActionButtonStyle}" />
 
-                <TextBlock Text="Для навчальних даних паролі збігаються з логінами: admin, manager, viewer, director."
+                <TextBlock Text="{Binding Path=T[LoginHelp]}"
                            Foreground="#687789"
                            TextWrapping="Wrap"
                            FontSize="12"

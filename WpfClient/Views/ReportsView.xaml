@@ -3,17 +3,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
         <StackPanel>
-            <TextBlock Text="Звіти для керівника" FontSize="18" FontWeight="SemiBold" Foreground="#17202B" />
-            <TextBlock Text="Тут буде перегляд статистики замовлень і підготовка даних, які Telegram-бот надсилатиме керівнику."
+            <TextBlock Text="{Binding Path=T[ReportsTitle]}" FontSize="18" FontWeight="SemiBold" Foreground="#17202B" />
+            <TextBlock Text="{Binding Path=T[ReportsDescription]}"
                        TextWrapping="Wrap"
                        Foreground="#687789"
                        Margin="0,8,0,18" />
-            <TextBlock Text="{Binding Summary.TotalAmountText, StringFormat=Загальна сума замовлень: {0}}"
+            <TextBlock Text="{Binding TotalAmountReportText}"
                        FontSize="16"
                        FontWeight="SemiBold"
                        Foreground="#17202B"
                        Margin="0,0,0,18" />
-            <Button Content="Сформувати звіт"
+            <Button Content="{Binding Path=T[BuildReport]}"
                     Command="{Binding RefreshDataCommand}"
                     Style="{StaticResource ActionButtonStyle}"
                     Visibility="{Binding CanViewReports, Converter={StaticResource BooleanToVisibilityConverter}}"

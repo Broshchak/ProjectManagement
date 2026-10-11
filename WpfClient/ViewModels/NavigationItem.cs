@@ -1,9 +1,12 @@
 using System.Windows.Controls;
+using WpfClient.Models;
 
 namespace WpfClient.ViewModels;
 
-public sealed record NavigationItem(string Key, string Title, UserControl View, string[] AllowedRoles)
+public sealed record NavigationItem(string Key, string TitleKey, UserControl View, string[] AllowedRoles)
 {
+    public string Title => LocalizationManager.Instance[TitleKey];
+
     public bool IsAllowedFor(string roleName)
     {
         return AllowedRoles.Contains(roleName);

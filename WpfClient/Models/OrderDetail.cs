@@ -17,6 +17,8 @@ public sealed class OrderDetail
 
     public string Status { get; set; } = string.Empty;
 
+    public string StatusText => OrderStatusNames.ToText(Status);
+
     public decimal Total { get; set; }
 
     public string? Comment { get; set; }
@@ -77,7 +79,11 @@ public sealed class OrderStatusHistoryItem
 {
     public string PreviousStatus { get; set; } = string.Empty;
 
+    public string PreviousStatusText => OrderStatusNames.ToText(PreviousStatus);
+
     public string NewStatus { get; set; } = string.Empty;
+
+    public string NewStatusText => OrderStatusNames.ToText(NewStatus);
 
     public string ChangedBy { get; set; } = string.Empty;
 
