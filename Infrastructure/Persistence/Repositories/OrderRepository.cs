@@ -13,10 +13,22 @@ namespace Infrastructure.Persistence.Repositories
                 .FirstOrDefaultAsync(o => o.Id == id, ct);
         }
 
+        public async Task<OrderEntity?> GetByNumberAsync(string orderNumber, CancellationToken ct = default)
+        {
+            return await context.Set<OrderEntity>()
+                .FirstOrDefaultAsync(o => o.OrderNumber == orderNumber, ct);
+        }
+
         public async Task<OrderStatusEntity?> GetStatusByCodeAsync(string code, CancellationToken ct = default)
         {
             return await context.Set<OrderStatusEntity>()
                 .FirstOrDefaultAsync(s => s.Code == code, ct);
+        }
+
+        public async Task<OrderStatusEntity?> GetStatusByIdAsync(int id, CancellationToken ct = default)
+        {
+            return await context.Set<OrderStatusEntity>()
+                .FirstOrDefaultAsync(s => s.Id == id, ct);
         }
 
         public async Task<decimal?> GetProductPriceAsync(int productId, CancellationToken ct = default)

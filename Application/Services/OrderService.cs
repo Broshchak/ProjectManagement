@@ -117,5 +117,72 @@ namespace Application.Services
             await unitOfWork.SaveChangesAsync(ct);
             return true;
         }
+
+        public async Task<OrderDetailDto?> ChangeOrderStatusAsync(int orderId, ChangeOrderStatusDto dto, int currentUserId, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Action))
+            {
+                throw new ValidationException("Status action is required.");
+            }
+
+            var order = await orderRepository.GetByIdAsync(orderId, ct);
+            if (order == null) return null;
+
+            var currentStatus = await orderRepository.GetStatusByIdAsync(order.StatusId, ct);
+            if (currentStatus == null)
+            {
+                throw new InvalidOperationException("Current order status was not found.");
+            }
+
+            if (currentStatus.IsFinal)
+            {
+                throw new ValidationException($"Order status '{currentStatus.Code}' is final and cannot be changed.");
+            }
+
+            var nextStatusCode = GetNextStatusCode(currentStatus.Code, dto.Action);
+            var nextStatus = await orderRepository.GetStatusByCodeAsync(nextStatusCode, ct)
+                ?? throw new InvalidOperationException($"Order status '{nextStatusCode}' was not found.");
+
+            order.StatusId = nextStatus.Id;
+            await orderRepository.AddStatusHistoryAsync(new OrderStatusHistoryEntity
+            {
+                OrderId = order.Id,
+                PreviousStatusId = currentStatus.Id,
+                NewStatusId = nextStatus.Id,
+                ChangedByUserId = currentUserId,
+                Comment = GetActionComment(dto.Action)
+            }, ct);
+
+            await unitOfWork.SaveChangesAsync(ct);
+            return await orderRepository.GetDetailByIdAsync(order.Id, ct);
+        }
+
+        private static string GetNextStatusCode(string currentStatus, string action)
+        {
+            return (currentStatus, action.Trim().ToLowerInvariant()) switch
+            {
+                ("NewOrder", "register") => "Registered",
+                ("NewOrder", "cancel") => "Cancelled",
+                ("Registered", "grant") => "Granted",
+                ("Registered", "cancel") => "Cancelled",
+                ("Granted", "ship") => "Shipped",
+                ("Granted", "cancel") => "Cancelled",
+                ("Shipped", "invoice") => "Invoiced",
+                _ => throw new ValidationException($"Action '{action}' is not available for current order status '{currentStatus}'.")
+            };
+        }
+
+        private static string GetActionComment(string action)
+        {
+            return action.ToLowerInvariant() switch
+            {
+                "register" => "Registered for processing",
+                "grant" => "Approved",
+                "ship" => "Sent to customer",
+                "invoice" => "Invoice issued",
+                "cancel" => "Cancelled",
+                _ => "Status changed"
+            };
+        }
     }
 }

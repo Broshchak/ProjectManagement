@@ -15,31 +15,80 @@
                 Padding="20"
                 Margin="0,0,0,0">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                    <Button Content="Додати товар"
-                            Command="{Binding BeginAddProductCommand}"
-                            Style="{StaticResource ActionButtonStyle}"
-                            Margin="0,0,8,0" />
-                    <Button Content="Редагувати"
-                            Command="{Binding BeginEditProductCommand}"
-                            Style="{StaticResource ActionButtonStyle}"
-                            Margin="0,0,8,0" />
-                    <Button Content="Оновити"
-                            Command="{Binding RefreshDataCommand}"
-                            Style="{StaticResource ActionButtonStyle}" />
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Додати товар"
+                                Command="{Binding BeginAddProductCommand}"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Редагувати"
+                                Command="{Binding BeginEditProductCommand}"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Margin="0,0,8,0" />
+                        <Button Content="Пошук цін"
+                                Command="{Binding OpenProductPriceSearchCommand}"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Margin="0,0,8,0"
+                                ToolTip="Відкрити пошук альтернативної ціни для вибраного товару" />
+                        <Button Content="Оновити"
+                                Command="{Binding RefreshDataCommand}"
+                                Style="{StaticResource ActionButtonStyle}" />
+                    </StackPanel>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding ProductSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 MinHeight="34"
+                                 Padding="8"
+                                 Margin="0,0,12,0"
+                                 ToolTip="Пошук за назвою, категорією, ціною або станом" />
+                        <CheckBox Grid.Column="1"
+                                  Content="Лише низькі залишки"
+                                  IsChecked="{Binding ShowOnlyLowStockProducts}"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,12,0" />
+                        <Button Grid.Column="2"
+                                Content="Скинути"
+                                Command="{Binding ClearProductFiltersCommand}"
+                                Style="{StaticResource ActionButtonStyle}" />
+                    </Grid>
+                    <TextBlock Text="{Binding ProductFilterSummaryText}"
+                               Foreground="#687789"
+                               FontSize="12"
+                               Margin="0,8,0,0" />
                 </StackPanel>
 
-                <DataGrid ItemsSource="{Binding Products}"
+                <DataGrid ItemsSource="{Binding FilteredProducts}"
                           SelectedItem="{Binding SelectedProduct, Mode=TwoWay}"
                           AutoGenerateColumns="False"
                           CanUserAddRows="False"
                           IsReadOnly="True"
                           SelectionMode="Single">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsLowStock}" Value="True">
+                                    <Setter Property="Background" Value="#FFF7ED" />
+                                    <Setter Property="ToolTip" Value="Низький залишок товару" />
+                                </DataTrigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Назва" Binding="{Binding Name}" Width="*" />
                         <DataGridTextColumn Header="Категорія" Binding="{Binding Category}" Width="170" />
                         <DataGridTextColumn Header="Ціна" Binding="{Binding PriceText}" Width="120" />
                         <DataGridTextColumn Header="Кількість" Binding="{Binding Quantity}" Width="90" />
+                        <DataGridTextColumn Header="Склад" Binding="{Binding StockText}" Width="140" />
                         <DataGridTextColumn Header="Стан" Binding="{Binding ActiveText}" Width="110" />
                     </DataGrid.Columns>
                 </DataGrid>

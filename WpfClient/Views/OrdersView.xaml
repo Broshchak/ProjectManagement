@@ -26,6 +26,34 @@
                                 Style="{StaticResource ActionButtonStyle}" />
                     </StackPanel>
 
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding OrderSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 MinHeight="34"
+                                 Padding="8"
+                                 Margin="0,0,8,0"
+                                 ToolTip="Пошук за номером, клієнтом, статусом, датою або сумою" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding OrderStatusFilterOptions}"
+                                  SelectedItem="{Binding OrderStatusFilter, Mode=TwoWay}"
+                                  MinHeight="34"
+                                  Padding="8"
+                                  Margin="0,0,8,0" />
+                        <Button Grid.Column="2"
+                                Content="Скинути"
+                                Command="{Binding ClearOrderFiltersCommand}"
+                                Style="{StaticResource ActionButtonStyle}" />
+                    </Grid>
+                    <TextBlock Text="{Binding OrderFilterSummaryText}"
+                               Foreground="#687789"
+                               FontSize="12"
+                               Margin="0,8,0,0" />
+
                     <Border Background="#FFF4E5"
                             BorderBrush="#F0B35B"
                             BorderThickness="1"

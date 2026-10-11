@@ -89,6 +89,8 @@ public sealed class ProductListItem : INotifyPropertyChanged
 
             _quantity = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(StockText));
+            OnPropertyChanged(nameof(IsLowStock));
         }
     }
 
@@ -105,12 +107,18 @@ public sealed class ProductListItem : INotifyPropertyChanged
             _isActive = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ActiveText));
+            OnPropertyChanged(nameof(StockText));
+            OnPropertyChanged(nameof(IsLowStock));
         }
     }
 
     public string PriceText => $"{Price:N2} грн";
 
     public string ActiveText => IsActive ? "Активний" : "Неактивний";
+
+    public bool IsLowStock => IsActive && Quantity <= 5;
+
+    public string StockText => IsLowStock ? "Низький залишок" : "Достатньо";
 
     public string DisplayName => $"{Name} - {PriceText}";
 

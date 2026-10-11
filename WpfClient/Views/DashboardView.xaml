@@ -10,33 +10,39 @@
         <UniformGrid Columns="4" Margin="0,0,0,20">
             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="18" Margin="0,0,12,0">
                 <StackPanel>
-                    <TextBlock Text="Нові" Foreground="#687789" />
-                    <TextBlock Text="{Binding Summary.NewOrders}" FontSize="30" FontWeight="SemiBold" Foreground="#17202B" />
+                    <TextBlock Text="Усього замовлень" Foreground="#687789" />
+                    <TextBlock Text="{Binding Summary.TotalOrders}" FontSize="30" FontWeight="SemiBold" Foreground="#17202B" />
                 </StackPanel>
             </Border>
             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="18" Margin="0,0,12,0">
                 <StackPanel>
-                    <TextBlock Text="В роботі" Foreground="#687789" />
-                    <TextBlock Text="{Binding Summary.OrdersInProgress}" FontSize="30" FontWeight="SemiBold" Foreground="#17202B" />
+                    <TextBlock Text="Сума замовлень" Foreground="#687789" />
+                    <TextBlock Text="{Binding Summary.TotalAmountText}" FontSize="25" FontWeight="SemiBold" Foreground="#17202B" />
                 </StackPanel>
             </Border>
             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="18" Margin="0,0,12,0">
                 <StackPanel>
-                    <TextBlock Text="Відправлені" Foreground="#687789" />
-                    <TextBlock Text="{Binding Summary.ShippedOrders}" FontSize="30" FontWeight="SemiBold" Foreground="#17202B" />
+                    <TextBlock Text="Середній чек" Foreground="#687789" />
+                    <TextBlock Text="{Binding Summary.AverageOrderAmountText}" FontSize="25" FontWeight="SemiBold" Foreground="#17202B" />
                 </StackPanel>
             </Border>
             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="18">
                 <StackPanel>
-                    <TextBlock Text="Оплачені" Foreground="#687789" />
-                    <TextBlock Text="{Binding Summary.InvoicedOrders}" FontSize="30" FontWeight="SemiBold" Foreground="#17202B" />
+                    <TextBlock Text="Низькі залишки" Foreground="#687789" />
+                    <TextBlock Text="{Binding Summary.LowStockProducts}" FontSize="30" FontWeight="SemiBold" Foreground="#B45309" />
                 </StackPanel>
             </Border>
         </UniformGrid>
 
         <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="20">
-            <StackPanel>
-                <TextBlock Text="Поточний стан клієнта" FontSize="18" FontWeight="SemiBold" Foreground="#17202B" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.1*" />
+                    <ColumnDefinition Width="0.9*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Поточний стан клієнта" FontSize="18" FontWeight="SemiBold" Foreground="#17202B" />
                 <TextBlock Text="{Binding LoadingStatusText}"
                            TextWrapping="Wrap"
                            Foreground="#687789"
@@ -46,7 +52,51 @@
                            Foreground="#9B1C1C"
                            Margin="0,8,0,0"
                            Visibility="{Binding HasApiError, Converter={StaticResource BooleanToVisibilityConverter}}" />
-            </StackPanel>
+                    <TextBlock Text="Статуси замовлень"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#17202B"
+                               Margin="0,22,0,10" />
+                    <UniformGrid Columns="3">
+                        <StackPanel Margin="0,0,14,10">
+                            <TextBlock Text="Нові" Foreground="#687789" />
+                            <TextBlock Text="{Binding Summary.NewOrders}" FontSize="22" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,14,10">
+                            <TextBlock Text="В роботі" Foreground="#687789" />
+                            <TextBlock Text="{Binding Summary.OrdersInProgress}" FontSize="22" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,14,10">
+                            <TextBlock Text="Відправлені" Foreground="#687789" />
+                            <TextBlock Text="{Binding Summary.ShippedOrders}" FontSize="22" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,14,0">
+                            <TextBlock Text="Оплачені" Foreground="#687789" />
+                            <TextBlock Text="{Binding Summary.InvoicedOrders}" FontSize="22" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,14,0">
+                            <TextBlock Text="Скасовані" Foreground="#687789" />
+                            <TextBlock Text="{Binding Summary.CancelledOrders}" FontSize="22" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </UniformGrid>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Margin="28,0,0,0">
+                    <TextBlock Text="Аналітика" FontSize="18" FontWeight="SemiBold" Foreground="#17202B" />
+                    <Border Background="#F8FAFC" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Найчастіший товар" Foreground="#687789" />
+                            <TextBlock Text="{Binding Summary.TopProductText}" TextWrapping="Wrap" FontSize="17" FontWeight="SemiBold" Foreground="#17202B" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#FFF7ED" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Склад" Foreground="#9A3412" />
+                            <TextBlock Text="{Binding Summary.LowStockProductsText}" TextWrapping="Wrap" FontSize="17" FontWeight="SemiBold" Foreground="#7C2D12" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </UserControl>

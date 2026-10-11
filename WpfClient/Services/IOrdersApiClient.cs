@@ -16,7 +16,15 @@ public interface IOrdersApiClient
 
     Task ReplaceOrderItemAsync(int orderId, int itemId, CreateOrderItemRequest request, CancellationToken cancellationToken = default);
 
-    Task ChangeOrderStatusAsync(string orderNumber, string action, string changedBy, CancellationToken cancellationToken = default);
+    Task<OrderDetail> ChangeOrderStatusAsync(int orderId, string action, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default);
+
+    Task<ProductListItem> CreateProductAsync(ProductSaveRequest request, CancellationToken cancellationToken = default);
+
+    Task<ProductListItem> UpdateProductAsync(int productId, ProductSaveRequest request, CancellationToken cancellationToken = default);
+
+    Task<ProductStock> GetProductStockAsync(int productId, CancellationToken cancellationToken = default);
+
+    Task<ProductStock> UpdateProductStockAsync(int productId, int quantity, CancellationToken cancellationToken = default);
 }

@@ -85,20 +85,83 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         await AddOrderItemAsync(orderId, request, cancellationToken);
     }
 
-    public async Task ChangeOrderStatusAsync(string orderNumber, string action, string changedBy, CancellationToken cancellationToken = default)
+    public async Task<OrderDetail> ChangeOrderStatusAsync(int orderId, string action, CancellationToken cancellationToken = default)
     {
         using HttpResponseMessage response = await httpClient.PostAsJsonAsync(
-            $"api/orders/{Uri.EscapeDataString(orderNumber)}/{Uri.EscapeDataString(action)}",
-            new { changedBy },
+            $"api/orders/{orderId}/status",
+            new { action },
             cancellationToken);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessWithApiMessageAsync(response, cancellationToken);
+
+        OrderDetailResponse? order = await response.Content.ReadFromJsonAsync<OrderDetailResponse>(cancellationToken);
+        return order is null
+            ? throw new InvalidOperationException("API не повернув оновлене замовлення.")
+            : MapOrderDetail(order);
     }
 
     public async Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
-        await Task.CompletedTask;
-        return LocalCatalog.CreateProducts();
+        List<ProductResponse> products;
+
+        try
+        {
+            products = await httpClient.GetFromJsonAsync<List<ProductResponse>>("api/products", cancellationToken)
+                ?? [];
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return LocalCatalog.CreateProducts();
+        }
+
+        return products.Select(MapProduct).ToList();
+    }
+
+    public async Task<ProductListItem> CreateProductAsync(ProductSaveRequest request, CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync("api/products", request, cancellationToken);
+        await EnsureSuccessWithApiMessageAsync(response, cancellationToken);
+
+        ProductResponse? product = await response.Content.ReadFromJsonAsync<ProductResponse>(cancellationToken);
+        return product is null
+            ? throw new InvalidOperationException("API не повернув створений товар.")
+            : MapProduct(product);
+    }
+
+    public async Task<ProductListItem> UpdateProductAsync(int productId, ProductSaveRequest request, CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage response = await httpClient.PutAsJsonAsync($"api/products/{productId}", request, cancellationToken);
+        await EnsureSuccessWithApiMessageAsync(response, cancellationToken);
+
+        ProductResponse? product = await response.Content.ReadFromJsonAsync<ProductResponse>(cancellationToken);
+        return product is null
+            ? throw new InvalidOperationException("API не повернув оновлений товар.")
+            : MapProduct(product);
+    }
+
+    public async Task<ProductStock> GetProductStockAsync(int productId, CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage response = await httpClient.GetAsync($"api/products/{productId}/stock", cancellationToken);
+        await EnsureSuccessWithApiMessageAsync(response, cancellationToken);
+
+        ProductStockResponse? stock = await response.Content.ReadFromJsonAsync<ProductStockResponse>(cancellationToken);
+        return stock is null
+            ? throw new InvalidOperationException("API не повернув залишок товару.")
+            : new ProductStock { ProductId = stock.ProductId, Quantity = stock.Quantity };
+    }
+
+    public async Task<ProductStock> UpdateProductStockAsync(int productId, int quantity, CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage response = await httpClient.PutAsJsonAsync(
+            $"api/products/{productId}/stock",
+            new { quantity },
+            cancellationToken);
+        await EnsureSuccessWithApiMessageAsync(response, cancellationToken);
+
+        ProductStockResponse? stock = await response.Content.ReadFromJsonAsync<ProductStockResponse>(cancellationToken);
+        return stock is null
+            ? throw new InvalidOperationException("API не повернув оновлений залишок товару.")
+            : new ProductStock { ProductId = stock.ProductId, Quantity = stock.Quantity };
     }
 
     private static OrderListItem MapOrderSummary(OrderSummaryResponse order)
@@ -147,6 +210,43 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         };
     }
 
+    private static ProductListItem MapProduct(ProductResponse product)
+    {
+        return new ProductListItem
+        {
+            Id = product.Id,
+            Name = product.Name,
+            Category = product.CategoryName,
+            Price = product.Price,
+            Quantity = product.Quantity,
+            IsActive = product.IsActive
+        };
+    }
+
+    private static async Task EnsureSuccessWithApiMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        ApiErrorResponse? error = null;
+        try
+        {
+            error = await response.Content.ReadFromJsonAsync<ApiErrorResponse>(cancellationToken);
+        }
+        catch
+        {
+            // Fall through to the generic HTTP error when the API did not return JSON.
+        }
+
+        string message = string.IsNullOrWhiteSpace(error?.Message)
+            ? $"API повернув помилку {(int)response.StatusCode} ({response.ReasonPhrase})."
+            : error.Message;
+
+        throw new InvalidOperationException(message);
+    }
+
     private sealed class OrderSummaryResponse
     {
         public int Id { get; set; }
@@ -185,6 +285,35 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         public List<OrderItemResponse> Items { get; set; } = [];
 
         public List<OrderStatusHistoryResponse> StatusHistory { get; set; } = [];
+    }
+
+    private sealed class ProductResponse
+    {
+        public int Id { get; set; }
+
+        public string Name { get; set; } = string.Empty;
+
+        public string CategoryName { get; set; } = string.Empty;
+
+        public decimal Price { get; set; }
+
+        public string CurrencyCode { get; set; } = string.Empty;
+
+        public int Quantity { get; set; }
+
+        public bool IsActive { get; set; }
+    }
+
+    private sealed class ProductStockResponse
+    {
+        public int ProductId { get; set; }
+
+        public int Quantity { get; set; }
+    }
+
+    private sealed class ApiErrorResponse
+    {
+        public string? Message { get; set; }
     }
 
     private sealed class OrderItemResponse

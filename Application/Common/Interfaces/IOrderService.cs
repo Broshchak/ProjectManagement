@@ -9,5 +9,6 @@ namespace Application.Common.Interfaces
         Task<OrderDetailDto> CreateOrderAsync(CreateOrderDto dto, int currentUserId, CancellationToken ct = default);
         Task<bool> AddOrderItemAsync(int orderId, CreateOrderItemDto dto, CancellationToken ct = default);
         Task<bool> RemoveOrderItemAsync(int orderId, int itemId, CancellationToken ct = default);
+        Task<OrderDetailDto?> ChangeOrderStatusAsync(int orderId, ChangeOrderStatusDto dto, int currentUserId, CancellationToken ct = default);
     }
 }

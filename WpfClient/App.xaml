@@ -48,8 +48,8 @@
                     <Setter Property="Background" Value="#EEF6FF" />
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#DCEBFF" />
-                    <Setter Property="Foreground" Value="#17202B" />
+                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -77,7 +77,7 @@
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
                     <Setter Property="Background" Value="Transparent" />
-                    <Setter Property="Foreground" Value="#17202B" />
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}" />
                     <Setter Property="BorderThickness" Value="0" />
                 </Trigger>
             </Style.Triggers>

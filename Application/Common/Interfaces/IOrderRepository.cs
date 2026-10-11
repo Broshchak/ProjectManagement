@@ -1,4 +1,4 @@
-﻿using Application.Dtos.Orders;
+using Application.Dtos.Orders;
 using Domain.Entities;
 
 namespace Application.Common.Interfaces
@@ -6,8 +6,10 @@ namespace Application.Common.Interfaces
     public interface IOrderRepository
     {
         Task<OrderEntity?> GetByIdAsync(int id, CancellationToken ct = default);
+        Task<OrderEntity?> GetByNumberAsync(string orderNumber, CancellationToken ct = default);
         Task<IEnumerable<OrderSummaryDto>> GetSummariesAsync(CancellationToken ct = default);
         Task<OrderDetailDto?> GetDetailByIdAsync(int id, CancellationToken ct = default);
+        Task<OrderStatusEntity?> GetStatusByIdAsync(int id, CancellationToken ct = default);
         Task<OrderStatusEntity?> GetStatusByCodeAsync(string code, CancellationToken ct = default);
         Task<decimal?> GetProductPriceAsync(int productId, CancellationToken ct = default);
         Task<Dictionary<int, decimal>> GetProductPricesAsync(IEnumerable<int> productIds, CancellationToken ct = default);
@@ -16,7 +18,5 @@ namespace Application.Common.Interfaces
         Task<OrderItemEntity?> GetItemByIdAsync(int orderId, int itemId, CancellationToken ct = default);
         Task AddItemAsync(OrderItemEntity item, CancellationToken ct = default);
         void RemoveItem(OrderItemEntity item);
-
     }
-
 }

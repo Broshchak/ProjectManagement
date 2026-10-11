@@ -13,6 +13,7 @@ public sealed record NavigationItem(string Key, string Title, UserControl View, 
     {
         "Dashboard" => "⌂",
         "Orders" => "□",
+        "Kanban" => "▦",
         "Products" => "◇",
         "Users" => "◉",
         "Reports" => "≡",

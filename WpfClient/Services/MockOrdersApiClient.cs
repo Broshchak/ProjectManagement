@@ -130,7 +130,7 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
     private int _nextOrderId = 6;
     private int _nextOrderItemId = 11;
 
-    private readonly IReadOnlyList<ProductListItem> _products = LocalCatalog.CreateProducts();
+    private readonly List<ProductListItem> _products = LocalCatalog.CreateProducts().ToList();
 
     public async Task<IReadOnlyList<OrderListItem>> GetOrdersAsync(CancellationToken cancellationToken = default)
     {
@@ -226,11 +226,11 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
         await AddOrderItemAsync(orderId, request, cancellationToken);
     }
 
-    public async Task ChangeOrderStatusAsync(string orderNumber, string action, string changedBy, CancellationToken cancellationToken = default)
+    public async Task<OrderDetail> ChangeOrderStatusAsync(int orderId, string action, CancellationToken cancellationToken = default)
     {
         await Task.Delay(150, cancellationToken);
 
-        OrderDetail? orderDetails = _orderDetails.Values.FirstOrDefault(order => order.Number == orderNumber);
+        OrderDetail? orderDetails = _orderDetails.GetValueOrDefault(orderId);
         if (orderDetails is null)
         {
             throw new InvalidOperationException("Замовлення не знайдено.");
@@ -238,29 +238,91 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
 
         string nextStatus = GetNextStatus(orderDetails.Status, action);
         string previousStatus = orderDetails.Status;
-        string actor = string.IsNullOrWhiteSpace(changedBy) ? "System" : changedBy.Trim();
 
         orderDetails.Status = nextStatus;
         orderDetails.StatusHistory.Add(new OrderStatusHistoryItem
         {
             PreviousStatus = previousStatus,
             NewStatus = nextStatus,
-            ChangedBy = actor,
+            ChangedBy = "System",
             ChangedAt = DateTime.Now,
             Comment = GetActionComment(action)
         });
 
-        OrderListItem? listItem = _orders.FirstOrDefault(order => order.Number == orderNumber);
+        OrderListItem? listItem = _orders.FirstOrDefault(order => order.Id == orderId);
         if (listItem is not null)
         {
             listItem.Status = nextStatus;
         }
+
+        return orderDetails;
     }
 
     public async Task<IReadOnlyList<ProductListItem>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
         await Task.Delay(150, cancellationToken);
         return _products;
+    }
+
+    public async Task<ProductListItem> CreateProductAsync(ProductSaveRequest request, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        ProductListItem product = new()
+        {
+            Id = _products.Max(item => item.Id) + 1,
+            Name = request.Name,
+            Category = request.CategoryName,
+            Price = request.Price,
+            Quantity = request.Quantity,
+            IsActive = request.IsActive
+        };
+
+        _products.Add(product);
+
+        return product;
+    }
+
+    public async Task<ProductListItem> UpdateProductAsync(int productId, ProductSaveRequest request, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        ProductListItem product = _products.FirstOrDefault(item => item.Id == productId)
+            ?? throw new InvalidOperationException("Товар не знайдено.");
+
+        product.Name = request.Name;
+        product.Category = request.CategoryName;
+        product.Price = request.Price;
+        product.Quantity = request.Quantity;
+        product.IsActive = request.IsActive;
+
+        return product;
+    }
+
+    public async Task<ProductStock> GetProductStockAsync(int productId, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        ProductListItem product = _products.FirstOrDefault(item => item.Id == productId)
+            ?? throw new InvalidOperationException("Товар не знайдено.");
+
+        return new ProductStock { ProductId = product.Id, Quantity = product.Quantity };
+    }
+
+    public async Task<ProductStock> UpdateProductStockAsync(int productId, int quantity, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        if (quantity < 0)
+        {
+            throw new InvalidOperationException("Кількість не може бути меншою за 0.");
+        }
+
+        ProductListItem product = _products.FirstOrDefault(item => item.Id == productId)
+            ?? throw new InvalidOperationException("Товар не знайдено.");
+
+        product.Quantity = quantity;
+        return new ProductStock { ProductId = product.Id, Quantity = product.Quantity };
     }
 
     private static string GetNextStatus(string currentStatus, string action)

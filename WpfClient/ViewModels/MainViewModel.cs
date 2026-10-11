@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,6 +17,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IOrdersApiClient _apiClient;
     private readonly ApiClientSettings _apiSettings;
     private readonly IReadOnlyList<NavigationItem> _allNavigationItems;
+    private readonly List<OrderListItem> _allOrders = [];
+    private readonly List<ProductListItem> _allProducts = [];
+    private readonly List<OrderDetail> _loadedOrderDetails = [];
     private NavigationItem _selectedItem;
     private UserControl _currentView;
     private TestUser _selectedLoginUser;
@@ -43,6 +47,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _userEditorError;
     private string? _currentUserName;
     private string? _currentRoleName;
+    private string _orderSearchText = string.Empty;
+    private string _orderStatusFilter = "Усі";
+    private string _productSearchText = string.Empty;
+    private bool _showOnlyLowStockProducts;
     private string _userLogin = string.Empty;
     private string _userFullName = string.Empty;
     private string _userRoleName = "Viewer";
@@ -76,6 +84,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             new NavigationItem("Dashboard", "Огляд", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
             new NavigationItem("Orders", "Замовлення", new OrdersView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
+            new NavigationItem("Kanban", "Дошка", new KanbanView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
             new NavigationItem("Products", "Товари", new ProductsView(), new[] { "Admin" }),
             new NavigationItem("Users", "Користувачі", new UsersView(), new[] { "Admin", "Director" }),
             new NavigationItem("Reports", "Звіти", new ReportsView(), new[] { "Admin", "Viewer", "Director" })
@@ -94,6 +103,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
+        ClearOrderFiltersCommand = new RelayCommand(_ => ClearOrderFilters(), _ => HasOrderFilters);
+        ClearProductFiltersCommand = new RelayCommand(_ => ClearProductFilters(), _ => HasProductFilters);
+        OpenProductPriceSearchCommand = new RelayCommand(_ => OpenProductPriceSearch(), _ => SelectedProduct is not null);
         ChangeOrderStatusCommand = new RelayCommand(
             async action => await ChangeOrderStatusAsync(action as string),
             action => CanExecuteOrderStatusAction(action as string));
@@ -105,7 +117,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RemoveOrderItemCommand = new RelayCommand(_ => RemoveOrderItemFromDraft(), _ => CanEditOrderDraft && SelectedOrderItem is not null);
         BeginAddProductCommand = new RelayCommand(_ => BeginAddProduct(), _ => CanManageProducts);
         BeginEditProductCommand = new RelayCommand(_ => BeginEditProduct(), _ => CanManageProducts && SelectedProduct is not null);
-        SaveProductCommand = new RelayCommand(_ => SaveProduct(), _ => CanManageProducts && IsProductEditorOpen);
+        SaveProductCommand = new RelayCommand(async _ => await SaveProductAsync(), _ => CanManageProducts && IsProductEditorOpen);
         CancelProductEditCommand = new RelayCommand(_ => CloseProductEditor(), _ => IsProductEditorOpen);
         BeginAddUserCommand = new RelayCommand(_ => BeginAddUser(), _ => CanManageUsers);
         BeginEditUserCommand = new RelayCommand(_ => BeginEditUser(), _ => CanManageUsers && SelectedUser is not null);
@@ -124,21 +136,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<OrderListItem> Orders { get; } = [];
 
+    public ObservableCollection<KanbanColumn> KanbanColumns { get; } =
+    [
+        new() { Title = "Нові", Status = "NewOrder" },
+        new() { Title = "Зареєстровані", Status = "Registered" },
+        new() { Title = "Погоджені", Status = "Granted" },
+        new() { Title = "Відправлені", Status = "Shipped" },
+        new() { Title = "Оплачені", Status = "Invoiced" },
+        new() { Title = "Скасовані", Status = "Cancelled" }
+    ];
+
     public ObservableCollection<OrderDetailItem> EditableOrderItems { get; } = [];
 
     public ObservableCollection<CustomerListItem> Customers { get; } = [];
 
     public ObservableCollection<ProductListItem> Products { get; } = [];
 
+    public ObservableCollection<ProductListItem> FilteredProducts { get; } = [];
+
     public ObservableCollection<TestUser> TestUsers { get; }
 
     public IReadOnlyList<string> RoleOptions { get; } = ["Admin", "Manager", "Viewer", "Director"];
+
+    public IReadOnlyList<string> OrderStatusFilterOptions { get; } =
+        ["Усі", "NewOrder", "Registered", "Granted", "Shipped", "Invoiced", "Cancelled"];
 
     public ICommand NavigateCommand { get; }
 
     public ICommand SignOutCommand { get; }
 
     public ICommand RefreshDataCommand { get; }
+
+    public ICommand ClearOrderFiltersCommand { get; }
+
+    public ICommand ClearProductFiltersCommand { get; }
+
+    public ICommand OpenProductPriceSearchCommand { get; }
 
     public ICommand ChangeOrderStatusCommand { get; }
 
@@ -270,6 +303,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+
+    public string OrderSearchText
+    {
+        get => _orderSearchText;
+        set
+        {
+            if (_orderSearchText == value)
+            {
+                return;
+            }
+
+            _orderSearchText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasOrderFilters));
+            ApplyOrderFilters();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public string OrderStatusFilter
+    {
+        get => _orderStatusFilter;
+        set
+        {
+            if (_orderStatusFilter == value)
+            {
+                return;
+            }
+
+            _orderStatusFilter = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasOrderFilters));
+            ApplyOrderFilters();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool HasOrderFilters =>
+        !string.IsNullOrWhiteSpace(OrderSearchText) || OrderStatusFilter != "Усі";
+
+    public string OrderFilterSummaryText => _allOrders.Count == Orders.Count
+        ? $"Показано всі замовлення: {Orders.Count}"
+        : $"Показано {Orders.Count} із {_allOrders.Count} замовлень";
 
     public OrderListItem? SelectedOrder
     {
@@ -668,10 +744,59 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
+            if (IsProductEditorOpen)
+            {
+                CloseProductEditor();
+            }
+
             _selectedProduct = value;
             OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
         }
     }
+
+    public string ProductSearchText
+    {
+        get => _productSearchText;
+        set
+        {
+            if (_productSearchText == value)
+            {
+                return;
+            }
+
+            _productSearchText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasProductFilters));
+            ApplyProductFilters();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool ShowOnlyLowStockProducts
+    {
+        get => _showOnlyLowStockProducts;
+        set
+        {
+            if (_showOnlyLowStockProducts == value)
+            {
+                return;
+            }
+
+            _showOnlyLowStockProducts = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasProductFilters));
+            ApplyProductFilters();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool HasProductFilters =>
+        !string.IsNullOrWhiteSpace(ProductSearchText) || ShowOnlyLowStockProducts;
+
+    public string ProductFilterSummaryText => _allProducts.Count == FilteredProducts.Count
+        ? $"Показано всі товари: {FilteredProducts.Count}"
+        : $"Показано {FilteredProducts.Count} із {_allProducts.Count} товарів";
 
     public bool IsProductEditorOpen
     {
@@ -955,14 +1080,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CurrentRoleName = null;
         LoginError = null;
         ApiErrorMessage = null;
+        _allOrders.Clear();
+        _allProducts.Clear();
+        _loadedOrderDetails.Clear();
         Orders.Clear();
+        ClearKanbanColumns();
         SelectedOrder = null;
         SelectedOrderDetails = null;
         Products.Clear();
+        FilteredProducts.Clear();
         Customers.Clear();
         SelectedProduct = null;
         EditableOrderItems.Clear();
         SelectedOrderItem = null;
+        OrderSearchText = string.Empty;
+        OrderStatusFilter = "Усі";
+        ProductSearchText = string.Empty;
+        ShowOnlyLowStockProducts = false;
         IsCreatingOrder = false;
         CloseProductEditor();
         CloseUserEditor();
@@ -1002,8 +1136,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
             IReadOnlyList<ProductListItem> products = await _apiClient.GetProductsAsync();
 
-            ReplaceCollection(Orders, orders);
-            RefreshCustomersFromOrders(orders);
+            _allOrders.Clear();
+            _allOrders.AddRange(orders);
+            _allProducts.Clear();
+            _allProducts.AddRange(products);
+            _loadedOrderDetails.Clear();
+
+            foreach (OrderListItem order in orders)
+            {
+                OrderDetail? details = await _apiClient.GetOrderDetailsAsync(order.Id);
+                if (details is not null)
+                {
+                    _loadedOrderDetails.Add(details);
+                }
+            }
+
+            ApplyOrderFilters();
+            RefreshCustomersFromOrders(_allOrders);
             OrderListItem? nextSelectedOrder = Orders.FirstOrDefault(order => order.Id == selectedOrderId)
                 ?? Orders.FirstOrDefault();
 
@@ -1016,12 +1165,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SelectedOrder = nextSelectedOrder;
             }
 
-            ReplaceCollection(Products, products);
-            SelectedProduct = Products.FirstOrDefault();
+            ReplaceCollection(Products, _allProducts);
+            ApplyProductFilters();
+            SelectedProduct = FilteredProducts.FirstOrDefault() ?? Products.FirstOrDefault();
             SelectedOrderItemProduct ??= Products.FirstOrDefault(product => product.IsActive) ?? Products.FirstOrDefault();
             OnPropertyChanged(nameof(CanEditSelectedOrder));
             OnPropertyChanged(nameof(CanEditOrderDraft));
-            Summary = BuildReportSummary(orders);
+            Summary = BuildReportSummary(_allOrders, _allProducts, _loadedOrderDetails);
         }
         catch (Exception exception)
         {
@@ -1069,13 +1219,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        string orderNumber = SelectedOrderDetails.Number;
         IsOrderStatusActionRunning = true;
         ApiErrorMessage = null;
 
         try
         {
-            await _apiClient.ChangeOrderStatusAsync(orderNumber, action!, CurrentUserName ?? "System");
+            await _apiClient.ChangeOrderStatusAsync(SelectedOrderDetails.Id, action!);
             await LoadClientDataAsync();
         }
         catch (Exception exception)
@@ -1098,7 +1247,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool CanShowOrderStatusAction(string? action)
     {
-        if (!_apiSettings.UseMockData || !CanManageOrders || SelectedOrderDetails is null || string.IsNullOrWhiteSpace(action))
+        if (!CanManageOrders || SelectedOrderDetails is null || string.IsNullOrWhiteSpace(action))
         {
             return false;
         }
@@ -1436,15 +1585,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : null;
     }
 
-    private static ReportSummary BuildReportSummary(IEnumerable<OrderListItem> orders)
+    private static ReportSummary BuildReportSummary(
+        IEnumerable<OrderListItem> orders,
+        IEnumerable<ProductListItem> products,
+        IEnumerable<OrderDetail> orderDetails)
     {
+        List<OrderListItem> orderList = orders.ToList();
+        ProductListItem? topProduct = null;
+        int topProductQuantity = 0;
+
+        var topProductGroup = orderDetails
+            .SelectMany(order => order.Items)
+            .GroupBy(item => item.ProductName)
+            .Select(group => new { ProductName = group.Key, Quantity = group.Sum(item => item.Quantity) })
+            .OrderByDescending(item => item.Quantity)
+            .FirstOrDefault();
+
+        if (topProductGroup is not null)
+        {
+            topProduct = products.FirstOrDefault(product => product.Name == topProductGroup.ProductName);
+            topProductQuantity = topProductGroup.Quantity;
+        }
+
         return new ReportSummary
         {
-            NewOrders = orders.Count(order => order.Status == "NewOrder"),
-            OrdersInProgress = orders.Count(order => order.Status is "Registered" or "Granted"),
-            ShippedOrders = orders.Count(order => order.Status == "Shipped"),
-            InvoicedOrders = orders.Count(order => order.Status == "Invoiced"),
-            TotalAmount = orders.Sum(order => order.Total)
+            TotalOrders = orderList.Count,
+            NewOrders = orderList.Count(order => order.Status == "NewOrder"),
+            OrdersInProgress = orderList.Count(order => order.Status is "Registered" or "Granted"),
+            ShippedOrders = orderList.Count(order => order.Status == "Shipped"),
+            InvoicedOrders = orderList.Count(order => order.Status == "Invoiced"),
+            CancelledOrders = orderList.Count(order => order.Status == "Cancelled"),
+            TotalAmount = orderList.Sum(order => order.Total),
+            AverageOrderAmount = orderList.Count == 0 ? 0 : orderList.Average(order => order.Total),
+            LowStockProducts = products.Count(IsLowStockProduct),
+            TopProductName = topProduct?.Name ?? topProductGroup?.ProductName ?? "-",
+            TopProductQuantity = topProductQuantity
         };
     }
 
@@ -1519,6 +1694,134 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return true;
     }
 
+    private void ApplyOrderFilters()
+    {
+        IEnumerable<OrderListItem> filteredOrders = _allOrders;
+
+        if (!string.IsNullOrWhiteSpace(OrderSearchText))
+        {
+            string query = OrderSearchText.Trim();
+            filteredOrders = filteredOrders.Where(order =>
+                order.Number.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.Customer.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.Status.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.TotalText.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.CreatedAtText.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (OrderStatusFilter != "Усі")
+        {
+            filteredOrders = filteredOrders.Where(order => order.Status == OrderStatusFilter);
+        }
+
+        List<OrderListItem> visibleOrders = filteredOrders.ToList();
+        ReplaceCollection(Orders, visibleOrders);
+        RefreshKanbanColumns(visibleOrders);
+
+        if (SelectedOrder is not null && Orders.All(order => order.Id != SelectedOrder.Id))
+        {
+            SelectedOrder = Orders.FirstOrDefault();
+        }
+
+        OnPropertyChanged(nameof(OrderFilterSummaryText));
+    }
+
+    private void ClearOrderFilters()
+    {
+        OrderSearchText = string.Empty;
+        OrderStatusFilter = "Усі";
+        ApplyOrderFilters();
+    }
+
+    private void RefreshKanbanColumns(IEnumerable<OrderListItem> orders)
+    {
+        foreach (KanbanColumn column in KanbanColumns)
+        {
+            column.Orders.Clear();
+
+            foreach (OrderListItem order in orders.Where(order => order.Status == column.Status))
+            {
+                column.Orders.Add(order);
+            }
+
+            column.RefreshMetrics();
+        }
+    }
+
+    private void ClearKanbanColumns()
+    {
+        foreach (KanbanColumn column in KanbanColumns)
+        {
+            column.Orders.Clear();
+            column.RefreshMetrics();
+        }
+    }
+
+    private void ApplyProductFilters()
+    {
+        IEnumerable<ProductListItem> filteredProducts = _allProducts;
+
+        if (!string.IsNullOrWhiteSpace(ProductSearchText))
+        {
+            string query = ProductSearchText.Trim();
+            filteredProducts = filteredProducts.Where(product =>
+                product.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || product.Category.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || product.PriceText.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || product.ActiveText.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (ShowOnlyLowStockProducts)
+        {
+            filteredProducts = filteredProducts.Where(IsLowStockProduct);
+        }
+
+        ReplaceCollection(FilteredProducts, filteredProducts.ToList());
+
+        if (SelectedProduct is not null && FilteredProducts.All(product => product.Id != SelectedProduct.Id))
+        {
+            SelectedProduct = FilteredProducts.FirstOrDefault();
+        }
+
+        OnPropertyChanged(nameof(ProductFilterSummaryText));
+    }
+
+    private void ClearProductFilters()
+    {
+        ProductSearchText = string.Empty;
+        ShowOnlyLowStockProducts = false;
+        ApplyProductFilters();
+    }
+
+    private void OpenProductPriceSearch()
+    {
+        if (SelectedProduct is null)
+        {
+            return;
+        }
+
+        string query = Uri.EscapeDataString($"site:hotline.ua/ua {SelectedProduct.Name} ціна");
+        string url = $"https://www.google.com/search?q={query}";
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            ProductEditorError = $"Не вдалося відкрити пошук цін. Деталі: {exception.Message}";
+        }
+    }
+
+    private static bool IsLowStockProduct(ProductListItem product)
+    {
+        return product.IsActive && product.Quantity <= 5;
+    }
+
     private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> source)
     {
         target.Clear();
@@ -1561,37 +1864,65 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ProductEditorTitle));
     }
 
-    private void SaveProduct()
+    private async Task SaveProductAsync()
     {
         if (!ValidateProductForm())
         {
             return;
         }
 
-        if (_isEditingProduct && SelectedProduct is not null)
+        ProductSaveRequest request = new()
         {
-            SelectedProduct.Name = ProductName.Trim();
-            SelectedProduct.Category = ProductCategory.Trim();
-            SelectedProduct.Price = ProductPrice;
-            SelectedProduct.Quantity = ProductQuantity;
-            SelectedProduct.IsActive = ProductIsActive;
-        }
-        else
+            Name = ProductName.Trim(),
+            CategoryName = ProductCategory.Trim(),
+            Price = ProductPrice,
+            Quantity = ProductQuantity,
+            IsActive = ProductIsActive
+        };
+
+        try
         {
-            ProductListItem product = new()
+            ProductListItem savedProduct = _isEditingProduct && SelectedProduct is not null
+                ? await _apiClient.UpdateProductAsync(SelectedProduct.Id, request)
+                : await _apiClient.CreateProductAsync(request);
+
+            ProductListItem? existingProduct = Products.FirstOrDefault(product => product.Id == savedProduct.Id);
+            if (existingProduct is not null)
             {
-                Name = ProductName.Trim(),
-                Category = ProductCategory.Trim(),
-                Price = ProductPrice,
-                Quantity = ProductQuantity,
-                IsActive = ProductIsActive
-            };
+                existingProduct.Name = savedProduct.Name;
+                existingProduct.Category = savedProduct.Category;
+                existingProduct.Price = savedProduct.Price;
+                existingProduct.Quantity = savedProduct.Quantity;
+                existingProduct.IsActive = savedProduct.IsActive;
+            }
+            else
+            {
+                Products.Add(savedProduct);
+            }
 
-            Products.Add(product);
-            SelectedProduct = product;
+            ProductListItem? existingCatalogProduct = _allProducts.FirstOrDefault(product => product.Id == savedProduct.Id);
+            if (existingCatalogProduct is not null)
+            {
+                existingCatalogProduct.Name = savedProduct.Name;
+                existingCatalogProduct.Category = savedProduct.Category;
+                existingCatalogProduct.Price = savedProduct.Price;
+                existingCatalogProduct.Quantity = savedProduct.Quantity;
+                existingCatalogProduct.IsActive = savedProduct.IsActive;
+            }
+            else
+            {
+                _allProducts.Add(savedProduct);
+            }
+
+            SelectedProduct = Products.FirstOrDefault(product => product.Id == savedProduct.Id) ?? savedProduct;
+            ApplyProductFilters();
+            Summary = BuildReportSummary(_allOrders, _allProducts, _loadedOrderDetails);
+            CloseProductEditor();
         }
-
-        CloseProductEditor();
+        catch (Exception exception)
+        {
+            ProductEditorError = $"Не вдалося зберегти товар. Деталі: {exception.Message}";
+        }
     }
 
     private bool ValidateProductForm()
