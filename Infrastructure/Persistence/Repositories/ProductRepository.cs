@@ -9,15 +9,12 @@ public sealed class ProductRepository(AppDbContext context) : IProductRepository
 {
     public async Task<IEnumerable<ProductListDto>> GetProductsAsync(CancellationToken ct = default)
     {
-        return await QueryProducts()
-            .OrderBy(product => product.Name)
-            .ToListAsync(ct);
+        return await QueryProducts(orderByName: true).ToListAsync(ct);
     }
 
     public async Task<ProductListDto?> GetProductAsync(int id, CancellationToken ct = default)
     {
-        return await QueryProducts()
-            .FirstOrDefaultAsync(product => product.Id == id, ct);
+        return await QueryProducts(productId: id).FirstOrDefaultAsync(ct);
     }
 
     public async Task<ProductEntity?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -64,22 +61,33 @@ public sealed class ProductRepository(AppDbContext context) : IProductRepository
         await context.Set<ProductStockEntity>().AddAsync(stock, ct);
     }
 
-    private IQueryable<ProductListDto> QueryProducts()
+    private IQueryable<ProductListDto> QueryProducts(int? productId = null, bool orderByName = false)
     {
-        return from p in context.Set<ProductEntity>().AsNoTracking()
-               join c in context.Set<ProductCategoryEntity>().AsNoTracking() on p.CategoryId equals c.Id
-               join pp in context.Set<ProductPriceEntity>().AsNoTracking() on p.Id equals pp.ProductId into prices
-               from price in prices.DefaultIfEmpty()
-               join ps in context.Set<ProductStockEntity>().AsNoTracking() on p.Id equals ps.ProductId into stocks
-               from stock in stocks.DefaultIfEmpty()
-               select new ProductListDto(
-                   p.Id,
-                   p.Name,
-                   c.Name,
-                   price != null ? price.Price : 0m,
-                   price != null ? price.CurrencyCode : "UAH",
-                   stock != null ? stock.Quantity : 0,
-                   p.IsActive
-               );
+        IQueryable<ProductEntity> products = context.Set<ProductEntity>().AsNoTracking();
+
+        if (productId.HasValue)
+        {
+            products = products.Where(product => product.Id == productId.Value);
+        }
+
+        if (orderByName)
+        {
+            products = products.OrderBy(product => product.Name);
+        }
+
+        return from p in products
+            join c in context.Set<ProductCategoryEntity>().AsNoTracking() on p.CategoryId equals c.Id
+            join pp in context.Set<ProductPriceEntity>().AsNoTracking() on p.Id equals pp.ProductId into prices
+            from price in prices.DefaultIfEmpty()
+            join ps in context.Set<ProductStockEntity>().AsNoTracking() on p.Id equals ps.ProductId into stocks
+            from stock in stocks.DefaultIfEmpty()
+            select new ProductListDto(
+                p.Id,
+                p.Name,
+                c.Name,
+                price != null ? price.Price : 0m,
+                price != null ? price.CurrencyCode : "UAH",
+                stock != null ? stock.Quantity : 0,
+                p.IsActive);
     }
 }

@@ -1134,7 +1134,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             int? selectedOrderId = SelectedOrder?.Id;
             IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
-            IReadOnlyList<ProductListItem> products = await _apiClient.GetProductsAsync();
+            IReadOnlyList<ProductListItem> products;
+            string? productLoadError = null;
+
+            try
+            {
+                products = await _apiClient.GetProductsAsync();
+            }
+            catch (Exception exception)
+            {
+                products = _allProducts.Count > 0 ? _allProducts.ToList() : LocalCatalog.CreateProducts();
+                productLoadError = $"Замовлення отримано, але не вдалося завантажити товари з API. Деталі: {exception.Message}";
+            }
 
             _allOrders.Clear();
             _allOrders.AddRange(orders);
@@ -1172,6 +1183,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanEditSelectedOrder));
             OnPropertyChanged(nameof(CanEditOrderDraft));
             Summary = BuildReportSummary(_allOrders, _allProducts, _loadedOrderDetails);
+
+            if (productLoadError is not null)
+            {
+                ApiErrorMessage = productLoadError;
+            }
         }
         catch (Exception exception)
         {
