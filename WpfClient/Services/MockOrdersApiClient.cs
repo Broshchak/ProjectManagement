@@ -325,6 +325,92 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
         return new ProductStock { ProductId = product.Id, Quantity = product.Quantity };
     }
 
+    public async Task<ReportSummary> GetOrdersReportAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+        return BuildReportSummary(from, to);
+    }
+
+    public async Task<(DateTime Date, int TotalOrders, decimal TotalAmount, IReadOnlyList<TodayOrderReportItem> Orders)> GetTodayOrdersReportAsync(DateTime date, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        List<TodayOrderReportItem> orders = _orders
+            .Where(order => order.CreatedAt.Date == date.Date)
+            .OrderByDescending(order => order.CreatedAt)
+            .Select(order => new TodayOrderReportItem
+            {
+                Id = order.Id,
+                OrderNumber = order.Number,
+                CustomerFullName = order.Customer,
+                StatusCode = order.Status,
+                StatusName = GetStatusText(order.Status),
+                TotalAmount = order.Total,
+                CreatedAt = order.CreatedAt
+            })
+            .ToList();
+
+        return (date.Date, orders.Count, orders.Sum(order => order.TotalAmount), orders);
+    }
+
+    public async Task<IReadOnlyList<ProductSalesReportItem>> GetProductSalesReportAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        return _orderDetails.Values
+            .Where(order => IsInDateRange(order.CreatedAt, from, to))
+            .SelectMany(order => order.Items)
+            .GroupBy(item => item.ProductId)
+            .Select(group =>
+            {
+                ProductListItem? product = _products.FirstOrDefault(item => item.Id == group.Key);
+                return new ProductSalesReportItem
+                {
+                    ProductId = group.Key,
+                    ProductName = product?.Name ?? group.First().ProductName,
+                    CategoryName = product?.Category ?? "-",
+                    Quantity = group.Sum(item => item.Quantity),
+                    TotalAmount = group.Sum(item => item.LineTotal)
+                };
+            })
+            .OrderByDescending(item => item.TotalAmount)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<LowStockProductReportItem>> GetLowStockReportAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        return _products
+            .Where(product => product.IsLowStock)
+            .OrderBy(product => product.Quantity)
+            .Select(product => new LowStockProductReportItem
+            {
+                ProductId = product.Id,
+                ProductName = product.Name,
+                CategoryName = product.Category,
+                Quantity = product.Quantity,
+                Price = product.Price
+            })
+            .ToList();
+    }
+
+    public async Task<string> GetManagerSummaryReportAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        ReportSummary report = BuildReportSummary(from, to);
+        return
+            $"Звіт для керівника\n" +
+            $"{GetPeriodText(from, to)}\n" +
+            $"Замовлень: {report.TotalOrders}\n" +
+            $"Загальна сума: {report.TotalAmount:N2} грн\n" +
+            $"Середній чек: {report.AverageOrderAmount:N2} грн\n" +
+            $"Нові: {report.NewOrders}, в роботі: {report.OrdersInProgress}, відвантажені: {report.ShippedOrders}, рахунки: {report.InvoicedOrders}, скасовані: {report.CancelledOrders}\n" +
+            $"Топ-товар: {report.TopProductText}\n" +
+            $"Товарів з низьким залишком: {report.LowStockProducts}";
+    }
+
     private static string GetNextStatus(string currentStatus, string action)
     {
         return (currentStatus, action.ToLowerInvariant()) switch
@@ -378,5 +464,91 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
         {
             listItem.Total = order.Total;
         }
+    }
+
+    private ReportSummary BuildReportSummary(DateTime? from = null, DateTime? to = null)
+    {
+        List<OrderListItem> orders = _orders
+            .Where(order => IsInDateRange(order.CreatedAt, from, to))
+            .ToList();
+
+        List<OrderDetail> orderDetails = _orderDetails.Values
+            .Where(order => IsInDateRange(order.CreatedAt, from, to))
+            .ToList();
+
+        ProductSalesReportItem? topProduct = orderDetails
+            .SelectMany(order => order.Items)
+            .GroupBy(item => item.ProductName)
+            .Select(group => new ProductSalesReportItem
+            {
+                ProductName = group.Key,
+                Quantity = group.Sum(item => item.Quantity)
+            })
+            .OrderByDescending(item => item.Quantity)
+            .FirstOrDefault();
+
+        return new ReportSummary
+        {
+            TotalOrders = orders.Count,
+            NewOrders = orders.Count(order => order.Status == "NewOrder"),
+            OrdersInProgress = orders.Count(order => order.Status is "Registered" or "Granted"),
+            ShippedOrders = orders.Count(order => order.Status == "Shipped"),
+            InvoicedOrders = orders.Count(order => order.Status == "Invoiced"),
+            CancelledOrders = orders.Count(order => order.Status == "Cancelled"),
+            TotalAmount = orders.Sum(order => order.Total),
+            AverageOrderAmount = orders.Count == 0 ? 0 : orders.Average(order => order.Total),
+            LowStockProducts = _products.Count(product => product.IsLowStock),
+            TopProductName = topProduct?.ProductName ?? "-",
+            TopProductQuantity = topProduct?.Quantity ?? 0
+        };
+    }
+
+    private static bool IsInDateRange(DateTime date, DateTime? from, DateTime? to)
+    {
+        if (from.HasValue && date.Date < from.Value.Date)
+        {
+            return false;
+        }
+
+        if (to.HasValue && date.Date > to.Value.Date)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string GetPeriodText(DateTime? from, DateTime? to)
+    {
+        if (from.HasValue && to.HasValue)
+        {
+            return $"Період: {from.Value:dd.MM.yyyy} - {to.Value:dd.MM.yyyy}";
+        }
+
+        if (from.HasValue)
+        {
+            return $"Період: з {from.Value:dd.MM.yyyy}";
+        }
+
+        if (to.HasValue)
+        {
+            return $"Період: до {to.Value:dd.MM.yyyy}";
+        }
+
+        return "Період: весь час";
+    }
+
+    private static string GetStatusText(string status)
+    {
+        return status switch
+        {
+            "NewOrder" => "Нове",
+            "Registered" => "Зареєстроване",
+            "Granted" => "Погоджене",
+            "Shipped" => "Відправлене",
+            "Invoiced" => "Рахунок",
+            "Cancelled" => "Скасоване",
+            _ => status
+        };
     }
 }
