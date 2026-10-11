@@ -14,6 +14,8 @@ public sealed class OrderListItem
 
     public string Status { get; set; } = string.Empty;
 
+    public string StatusText => OrderStatusNames.ToText(Status);
+
     public decimal Total { get; set; }
 
     public string CreatedAtText => CreatedAt.ToString("dd.MM.yyyy");

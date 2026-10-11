@@ -20,6 +20,8 @@ public sealed class ReportSummary
 
     public int LowStockProducts { get; set; }
 
+    public bool HasLowStockProducts => LowStockProducts > 0;
+
     public string TopProductName { get; set; } = "-";
 
     public int TopProductQuantity { get; set; }
@@ -29,10 +31,10 @@ public sealed class ReportSummary
     public string AverageOrderAmountText => $"{AverageOrderAmount:N2} грн";
 
     public string LowStockProductsText => LowStockProducts == 0
-        ? "Критичних залишків немає"
-        : $"{LowStockProducts} товар(ів) потребують уваги";
+        ? string.Empty
+        : LocalizationManager.Instance.Format("NeedsAttention", LowStockProducts);
 
     public string TopProductText => TopProductQuantity == 0
-        ? "Немає даних"
+        ? LocalizationManager.Instance["NoData"]
         : $"{TopProductName} ({TopProductQuantity} од.)";
 }

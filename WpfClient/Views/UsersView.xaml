@@ -1,6 +1,7 @@
 <UserControl x:Class="WpfClient.Views.UsersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="clr-namespace:WpfClient.Models">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -15,12 +16,12 @@
                 Padding="20">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
-                    <Button Content="Додати користувача"
+                    <Button Content="{Binding Path=T[AddUser]}"
                             Command="{Binding BeginAddUserCommand}"
                             Style="{StaticResource ActionButtonStyle}"
                             Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Margin="0,0,8,0" />
-                    <Button Content="Редагувати"
+                    <Button Content="{Binding Path=T[Edit]}"
                             Command="{Binding BeginEditUserCommand}"
                             Style="{StaticResource ActionButtonStyle}"
                             Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -33,10 +34,10 @@
                           IsReadOnly="True"
                           SelectionMode="Single">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Логін" Binding="{Binding Login}" Width="130" />
-                        <DataGridTextColumn Header="ПІБ" Binding="{Binding FullName}" Width="*" />
-                        <DataGridTextColumn Header="Роль" Binding="{Binding RoleName}" Width="110" />
-                        <DataGridTemplateColumn Header="Активний" Width="90">
+                        <DataGridTextColumn Header="{Binding Path=[Login], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Login}" Width="130" />
+                        <DataGridTextColumn Header="{Binding Path=[FullName], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding FullName}" Width="*" />
+                        <DataGridTextColumn Header="{Binding Path=[Role], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding RoleName}" Width="110" />
+                        <DataGridTemplateColumn Header="{Binding Path=[Active], Source={x:Static models:LocalizationManager.Instance}}" Width="90">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <Grid HorizontalAlignment="Center">
@@ -45,11 +46,11 @@
                                             <Ellipse.Style>
                                                 <Style TargetType="Ellipse">
                                                     <Setter Property="Fill" Value="#C8D1DC" />
-                                                    <Setter Property="ToolTip" Value="Користувач неактивний" />
+                                                    <Setter Property="ToolTip" Value="{Binding Path=[UserInactiveTip], Source={x:Static models:LocalizationManager.Instance}}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsActive}" Value="True">
                                                             <Setter Property="Fill" Value="#16A34A" />
-                                                            <Setter Property="ToolTip" Value="Користувач активний" />
+                                                            <Setter Property="ToolTip" Value="{Binding Path=[UserActiveTip], Source={x:Static models:LocalizationManager.Instance}}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -68,11 +69,11 @@
                                             <Ellipse.Style>
                                                 <Style TargetType="Ellipse">
                                                     <Setter Property="Fill" Value="#C8D1DC" />
-                                                    <Setter Property="ToolTip" Value="Telegram неактивний" />
+                                                    <Setter Property="ToolTip" Value="{Binding Path=[TelegramInactiveTip], Source={x:Static models:LocalizationManager.Instance}}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding TelegramActive}" Value="True">
                                                             <Setter Property="Fill" Value="#16A34A" />
-                                                            <Setter Property="ToolTip" Value="Telegram активний" />
+                                                            <Setter Property="ToolTip" Value="{Binding Path=[TelegramActiveTip], Source={x:Static models:LocalizationManager.Instance}}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -105,36 +106,36 @@
                                Foreground="#17202B"
                                Margin="0,0,0,16" />
 
-                    <TextBlock Text="Логін" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Text="{Binding Path=T[Login]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <TextBox Text="{Binding UserLogin, UpdateSourceTrigger=PropertyChanged}"
                              MinHeight="34"
                              Padding="8"
                              Margin="0,0,0,12" />
 
-                    <TextBlock Text="ПІБ" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Text="{Binding Path=T[FullName]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <TextBox Text="{Binding UserFullName, UpdateSourceTrigger=PropertyChanged}"
                              MinHeight="34"
                              Padding="8"
                              Margin="0,0,0,12" />
 
-                    <TextBlock Text="Роль" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Text="{Binding Path=T[Role]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <ComboBox ItemsSource="{Binding RoleOptions}"
                               SelectedItem="{Binding UserRoleName, Mode=TwoWay}"
                               MinHeight="34"
                               Padding="8"
                               Margin="0,0,0,12" />
 
-                    <TextBlock Text="Пароль" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Text="{Binding Path=T[Password]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <TextBox Text="{Binding UserPassword, UpdateSourceTrigger=PropertyChanged}"
                              MinHeight="34"
                              Padding="8"
                              Margin="0,0,0,12" />
 
-                    <CheckBox Content="Обліковий запис активний"
+                    <CheckBox Content="{Binding Path=T[AccountActive]}"
                               IsChecked="{Binding UserIsActive}"
                               Margin="0,0,0,12" />
 
-                    <CheckBox Content="Дозволити Telegram-доступ"
+                    <CheckBox Content="{Binding Path=T[AllowTelegram]}"
                               IsChecked="{Binding UserTelegramAllowed}"
                               Margin="0,0,0,8" />
 
@@ -157,11 +158,11 @@
                     </Border>
 
                     <StackPanel Orientation="Horizontal">
-                        <Button Content="Зберегти"
+                        <Button Content="{Binding Path=T[Save]}"
                                 Command="{Binding SaveUserCommand}"
                                 Style="{StaticResource ActionButtonStyle}"
                                 Margin="0,0,8,0" />
-                        <Button Content="Скасувати"
+                        <Button Content="{Binding Path=T[Cancel]}"
                                 Command="{Binding CancelUserEditCommand}"
                                 Style="{StaticResource ActionButtonStyle}" />
                     </StackPanel>

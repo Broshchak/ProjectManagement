@@ -8,7 +8,7 @@ public sealed class KanbanColumn : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string Title { get; init; } = string.Empty;
+    public string Title => OrderStatusNames.ToText(Status);
 
     public string Status { get; init; } = string.Empty;
 
@@ -22,6 +22,7 @@ public sealed class KanbanColumn : INotifyPropertyChanged
 
     public void RefreshMetrics()
     {
+        OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Count));
         OnPropertyChanged(nameof(Total));
         OnPropertyChanged(nameof(TotalText));

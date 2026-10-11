@@ -7,7 +7,7 @@
         xmlns:viewModels="clr-namespace:WpfClient.ViewModels"
         xmlns:views="clr-namespace:WpfClient.Views"
         mc:Ignorable="d"
-        Title="Керування замовленнями"
+        Title="{Binding Path=T[AppTitle]}"
         MinHeight="640"
         MinWidth="980"
         Height="900"
@@ -75,7 +75,7 @@
                 <DockPanel Margin="18">
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
                         <Button Command="{Binding SignOutCommand}"
-                            Content="Вийти"
+                            Content="{Binding Path=T[SignOut]}"
                             Width="78"
                             Height="32"
                             HorizontalAlignment="Left"
@@ -126,7 +126,7 @@
                                    FontSize="25"
                                    FontWeight="SemiBold"
                                    Foreground="#17202B" />
-                            <TextBlock Text="Тонкий десктопний клієнт для роботи із замовленнями"
+                            <TextBlock Text="{Binding Path=T[ClientSubtitle]}"
                                    Foreground="#687789"
                                    FontSize="14"
                                    Margin="0,4,0,0" />
@@ -134,6 +134,35 @@
                                    Foreground="#8B98A8"
                                    FontSize="12"
                                    Margin="0,4,0,0" />
+                        </StackPanel>
+
+                        <StackPanel DockPanel.Dock="Right"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,14,0">
+                            <TextBlock Text="{Binding Path=T[Language]}"
+                                       Foreground="#687789"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0" />
+                            <ComboBox ItemsSource="{Binding LanguageOptions}"
+                                      SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
+                                      HorizontalContentAlignment="Stretch"
+                                      VerticalContentAlignment="Center"
+                                      MinWidth="120"
+                                      MinHeight="30">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"
+                                                   TextAlignment="Center"
+                                                   HorizontalAlignment="Stretch" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
+                            </ComboBox>
                         </StackPanel>
 
                         <Border DockPanel.Dock="Right"

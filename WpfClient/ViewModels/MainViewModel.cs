@@ -66,11 +66,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private decimal _productPrice;
     private int _productQuantity;
     private bool _productIsActive = true;
+    private LanguageOption _selectedLanguage;
 
     public MainViewModel()
     {
         _apiSettings = ApiClientSettings.Load();
         _apiClient = OrdersApiClientFactory.Create(_apiSettings);
+        _selectedLanguage = LanguageOptions[0];
+        T.PropertyChanged += (_, _) => RefreshLanguageText();
 
         TestUsers = new ObservableCollection<TestUser>
         {
@@ -82,12 +85,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         _allNavigationItems = new[]
         {
-            new NavigationItem("Dashboard", "Огляд", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
-            new NavigationItem("Orders", "Замовлення", new OrdersView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
-            new NavigationItem("Kanban", "Дошка", new KanbanView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
-            new NavigationItem("Products", "Товари", new ProductsView(), new[] { "Admin" }),
-            new NavigationItem("Users", "Користувачі", new UsersView(), new[] { "Admin", "Director" }),
-            new NavigationItem("Reports", "Звіти", new ReportsView(), new[] { "Admin", "Viewer", "Director" })
+            new NavigationItem("Dashboard", "NavDashboard", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
+            new NavigationItem("Orders", "NavOrders", new OrdersView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
+            new NavigationItem("Kanban", "NavKanban", new KanbanView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
+            new NavigationItem("Products", "NavProducts", new ProductsView(), new[] { "Admin", "Viewer", "Director" }),
+            new NavigationItem("Users", "NavUsers", new UsersView(), new[] { "Admin", "Director" }),
+            new NavigationItem("Reports", "NavReports", new ReportsView(), new[] { "Admin", "Viewer", "Director" })
         };
 
         NavigationItems = new ObservableCollection<NavigationItem>();
@@ -106,6 +109,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearOrderFiltersCommand = new RelayCommand(_ => ClearOrderFilters(), _ => HasOrderFilters);
         ClearProductFiltersCommand = new RelayCommand(_ => ClearProductFilters(), _ => HasProductFilters);
         OpenProductPriceSearchCommand = new RelayCommand(_ => OpenProductPriceSearch(), _ => SelectedProduct is not null);
+        OpenLowStockProductsCommand = new RelayCommand(_ => OpenLowStockProducts(), _ => HasLowStockProducts);
         ChangeOrderStatusCommand = new RelayCommand(
             async action => await ChangeOrderStatusAsync(action as string),
             action => CanExecuteOrderStatusAction(action as string));
@@ -128,9 +132,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _selectedUser = TestUsers[0];
         _selectedItem = _allNavigationItems[0];
         _currentView = _selectedItem.View;
+        UpdateOrderStatusFilterOptions();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public LocalizationManager T => LocalizationManager.Instance;
+
+    public IReadOnlyList<LanguageOption> LanguageOptions { get; } =
+    [
+        new("uk", "Українська"),
+        new("en", "English")
+    ];
+
+    public LanguageOption SelectedLanguage
+    {
+        get => _selectedLanguage;
+        set
+        {
+            if (_selectedLanguage == value)
+            {
+                return;
+            }
+
+            _selectedLanguage = value;
+            OnPropertyChanged();
+            T.SetLanguage(value.Code);
+        }
+    }
 
     public ObservableCollection<NavigationItem> NavigationItems { get; }
 
@@ -138,12 +167,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<KanbanColumn> KanbanColumns { get; } =
     [
-        new() { Title = "Нові", Status = "NewOrder" },
-        new() { Title = "Зареєстровані", Status = "Registered" },
-        new() { Title = "Погоджені", Status = "Granted" },
-        new() { Title = "Відправлені", Status = "Shipped" },
-        new() { Title = "Оплачені", Status = "Invoiced" },
-        new() { Title = "Скасовані", Status = "Cancelled" }
+        new() { Status = "NewOrder" },
+        new() { Status = "Registered" },
+        new() { Status = "Granted" },
+        new() { Status = "Shipped" },
+        new() { Status = "Invoiced" },
+        new() { Status = "Cancelled" }
     ];
 
     public ObservableCollection<OrderDetailItem> EditableOrderItems { get; } = [];
@@ -158,8 +187,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<string> RoleOptions { get; } = ["Admin", "Manager", "Viewer", "Director"];
 
-    public IReadOnlyList<string> OrderStatusFilterOptions { get; } =
-        ["Усі", "NewOrder", "Registered", "Granted", "Shipped", "Invoiced", "Cancelled"];
+    public ObservableCollection<string> OrderStatusFilterOptions { get; } = [];
 
     public ICommand NavigateCommand { get; }
 
@@ -172,6 +200,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ClearProductFiltersCommand { get; }
 
     public ICommand OpenProductPriceSearchCommand { get; }
+
+    public ICommand OpenLowStockProductsCommand { get; }
 
     public ICommand ChangeOrderStatusCommand { get; }
 
@@ -287,11 +317,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool HasApiError => !string.IsNullOrWhiteSpace(ApiErrorMessage);
 
     public string ApiModeText => _apiSettings.UseMockData
-        ? "Mock-дані"
+        ? T["MockData"]
         : $"API: {_apiSettings.BaseUrl}";
 
     public string LoadingStatusText => IsLoading
-        ? "Завантаження даних..."
+        ? T["LoadingData"]
         : ApiModeText;
 
     public ReportSummary Summary
@@ -301,8 +331,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _summary = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HasLowStockProducts));
+            OnPropertyChanged(nameof(TotalAmountReportText));
+            CommandManager.InvalidateRequerySuggested();
         }
     }
+
+    public bool HasLowStockProducts => Summary.HasLowStockProducts;
+
+    public string TotalAmountReportText => T.Format("TotalAmountLabel", Summary.TotalAmountText);
 
     public string OrderSearchText
     {
@@ -341,11 +378,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public bool HasOrderFilters =>
-        !string.IsNullOrWhiteSpace(OrderSearchText) || OrderStatusFilter != "Усі";
+        !string.IsNullOrWhiteSpace(OrderSearchText) || OrderStatusFilter != T["All"];
 
     public string OrderFilterSummaryText => _allOrders.Count == Orders.Count
-        ? $"Показано всі замовлення: {Orders.Count}"
-        : $"Показано {Orders.Count} із {_allOrders.Count} замовлень";
+        ? T.Format("ShownAllOrders", Orders.Count)
+        : T.Format("ShownOrders", Orders.Count, _allOrders.Count);
 
     public OrderListItem? SelectedOrder
     {
@@ -589,8 +626,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
+            if (IsUserEditorOpen)
+            {
+                CloseUserEditor();
+            }
+
             _selectedUser = value;
             OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
@@ -609,7 +652,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string UserEditorTitle => _isEditingUser ? "Редагування користувача" : "Новий користувач";
+    public string UserEditorTitle => _isEditingUser ? T["UserEditorEdit"] : T["UserEditorNew"];
 
     public string? UserEditorError
     {
@@ -795,8 +838,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         !string.IsNullOrWhiteSpace(ProductSearchText) || ShowOnlyLowStockProducts;
 
     public string ProductFilterSummaryText => _allProducts.Count == FilteredProducts.Count
-        ? $"Показано всі товари: {FilteredProducts.Count}"
-        : $"Показано {FilteredProducts.Count} із {_allProducts.Count} товарів";
+        ? T.Format("ShownAllProducts", FilteredProducts.Count)
+        : T.Format("ShownProducts", FilteredProducts.Count, _allProducts.Count);
 
     public bool IsProductEditorOpen
     {
@@ -813,7 +856,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string ProductEditorTitle => _isEditingProduct ? "Редагування товару" : "Новий товар";
+    public string ProductEditorTitle => _isEditingProduct ? T["ProductEditorEdit"] : T["ProductEditorNew"];
 
     public string? ProductEditorError
     {
@@ -1094,7 +1137,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         EditableOrderItems.Clear();
         SelectedOrderItem = null;
         OrderSearchText = string.Empty;
-        OrderStatusFilter = "Усі";
+        OrderStatusFilter = T["All"];
         ProductSearchText = string.Empty;
         ShowOnlyLowStockProducts = false;
         IsCreatingOrder = false;
@@ -1123,6 +1166,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanViewReports));
         OnPropertyChanged(nameof(CanEditSelectedOrder));
         OnOrderStatusActionPropertiesChanged();
+    }
+
+    private void RefreshLanguageText()
+    {
+        string? selectedStatusCode = OrderStatusNames.ToCode(OrderStatusFilter);
+
+        UpdateOrderStatusFilterOptions();
+        OrderStatusFilter = selectedStatusCode is null ? T["All"] : OrderStatusNames.ToText(selectedStatusCode);
+
+        OnPropertyChanged(nameof(ApiModeText));
+        OnPropertyChanged(nameof(LoadingStatusText));
+        OnPropertyChanged(nameof(CurrentTitle));
+        OnPropertyChanged(nameof(OrderFilterSummaryText));
+        OnPropertyChanged(nameof(ProductFilterSummaryText));
+        OnPropertyChanged(nameof(ProductEditorTitle));
+        OnPropertyChanged(nameof(UserEditorTitle));
+        OnPropertyChanged(nameof(SelectedOrderDetails));
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(TotalAmountReportText));
+
+        if (IsAuthenticated)
+        {
+            RefreshNavigationItems();
+        }
+
+        ApplyOrderFilters();
+        ApplyProductFilters();
+    }
+
+    private void UpdateOrderStatusFilterOptions()
+    {
+        string[] options =
+        [
+            T["All"],
+            OrderStatusNames.ToText("NewOrder"),
+            OrderStatusNames.ToText("Registered"),
+            OrderStatusNames.ToText("Granted"),
+            OrderStatusNames.ToText("Shipped"),
+            OrderStatusNames.ToText("Invoiced"),
+            OrderStatusNames.ToText("Cancelled")
+        ];
+
+        ReplaceCollection(OrderStatusFilterOptions, options);
     }
 
     private async Task LoadClientDataAsync()
@@ -1721,13 +1807,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 order.Number.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || order.Customer.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || order.Status.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.StatusText.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || order.TotalText.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || order.CreatedAtText.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (OrderStatusFilter != "Усі")
+        string? statusCode = OrderStatusNames.ToCode(OrderStatusFilter);
+        if (statusCode is not null)
         {
-            filteredOrders = filteredOrders.Where(order => order.Status == OrderStatusFilter);
+            filteredOrders = filteredOrders.Where(order => order.Status == statusCode);
         }
 
         List<OrderListItem> visibleOrders = filteredOrders.ToList();
@@ -1745,7 +1833,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ClearOrderFilters()
     {
         OrderSearchText = string.Empty;
-        OrderStatusFilter = "Усі";
+        OrderStatusFilter = T["All"];
         ApplyOrderFilters();
     }
 
@@ -1831,6 +1919,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             ProductEditorError = $"Не вдалося відкрити пошук цін. Деталі: {exception.Message}";
         }
+    }
+
+    private void OpenLowStockProducts()
+    {
+        NavigationItem? productsItem = NavigationItems.FirstOrDefault(item => item.Key == "Products");
+        if (productsItem is null)
+        {
+            return;
+        }
+
+        ProductSearchText = string.Empty;
+        ShowOnlyLowStockProducts = true;
+        SelectedItem = productsItem;
     }
 
     private static bool IsLowStockProduct(ProductListItem product)

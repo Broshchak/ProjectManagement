@@ -12,6 +12,16 @@ public sealed class ProductListItem : INotifyPropertyChanged
     private int _quantity;
     private bool _isActive = true;
 
+    public ProductListItem()
+    {
+        LocalizationManager.Instance.PropertyChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(ActiveText));
+            OnPropertyChanged(nameof(StockText));
+            OnPropertyChanged(nameof(DisplayName));
+        };
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public int Id
@@ -114,11 +124,15 @@ public sealed class ProductListItem : INotifyPropertyChanged
 
     public string PriceText => $"{Price:N2} грн";
 
-    public string ActiveText => IsActive ? "Активний" : "Неактивний";
+    public string ActiveText => IsActive
+        ? LocalizationManager.Instance["Active"]
+        : LocalizationManager.Instance["Inactive"];
 
     public bool IsLowStock => IsActive && Quantity <= 5;
 
-    public string StockText => IsLowStock ? "Низький залишок" : "Достатньо";
+    public string StockText => IsLowStock
+        ? LocalizationManager.Instance["LowStock"]
+        : LocalizationManager.Instance["EnoughStock"];
 
     public string DisplayName => $"{Name} - {PriceText}";
 

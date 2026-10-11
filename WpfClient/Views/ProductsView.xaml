@@ -1,6 +1,7 @@
 <UserControl x:Class="WpfClient.Views.ProductsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="clr-namespace:WpfClient.Models">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -17,20 +18,20 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
                     <StackPanel Orientation="Horizontal">
-                        <Button Content="Додати товар"
+                        <Button Content="{Binding Path=T[AddProduct]}"
                                 Command="{Binding BeginAddProductCommand}"
                                 Style="{StaticResource ActionButtonStyle}"
                                 Margin="0,0,8,0" />
-                        <Button Content="Редагувати"
+                        <Button Content="{Binding Path=T[Edit]}"
                                 Command="{Binding BeginEditProductCommand}"
                                 Style="{StaticResource ActionButtonStyle}"
                                 Margin="0,0,8,0" />
-                        <Button Content="Пошук цін"
+                        <Button Content="{Binding Path=T[PriceSearch]}"
                                 Command="{Binding OpenProductPriceSearchCommand}"
                                 Style="{StaticResource ActionButtonStyle}"
                                 Margin="0,0,8,0"
-                                ToolTip="Відкрити пошук альтернативної ціни для вибраного товару" />
-                        <Button Content="Оновити"
+                                ToolTip="{Binding Path=T[PriceSearchTip]}" />
+                        <Button Content="{Binding Path=T[Refresh]}"
                                 Command="{Binding RefreshDataCommand}"
                                 Style="{StaticResource ActionButtonStyle}" />
                     </StackPanel>
@@ -46,14 +47,14 @@
                                  MinHeight="34"
                                  Padding="8"
                                  Margin="0,0,12,0"
-                                 ToolTip="Пошук за назвою, категорією, ціною або станом" />
+                                 ToolTip="{Binding Path=T[ProductSearchTip]}" />
                         <CheckBox Grid.Column="1"
-                                  Content="Лише низькі залишки"
+                                  Content="{Binding Path=T[OnlyLowStock]}"
                                   IsChecked="{Binding ShowOnlyLowStockProducts}"
                                   VerticalAlignment="Center"
                                   Margin="0,0,12,0" />
                         <Button Grid.Column="2"
-                                Content="Скинути"
+                                Content="{Binding Path=T[Reset]}"
                                 Command="{Binding ClearProductFiltersCommand}"
                                 Style="{StaticResource ActionButtonStyle}" />
                     </Grid>
@@ -74,7 +75,7 @@
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsLowStock}" Value="True">
                                     <Setter Property="Background" Value="#FFF7ED" />
-                                    <Setter Property="ToolTip" Value="Низький залишок товару" />
+                                    <Setter Property="ToolTip" Value="{Binding Path=[LowStockTip], Source={x:Static models:LocalizationManager.Instance}}" />
                                 </DataTrigger>
                                 <Trigger Property="IsSelected" Value="True">
                                     <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
@@ -84,12 +85,12 @@
                         </Style>
                     </DataGrid.RowStyle>
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Назва" Binding="{Binding Name}" Width="*" />
-                        <DataGridTextColumn Header="Категорія" Binding="{Binding Category}" Width="170" />
-                        <DataGridTextColumn Header="Ціна" Binding="{Binding PriceText}" Width="120" />
-                        <DataGridTextColumn Header="Кількість" Binding="{Binding Quantity}" Width="90" />
-                        <DataGridTextColumn Header="Склад" Binding="{Binding StockText}" Width="140" />
-                        <DataGridTextColumn Header="Стан" Binding="{Binding ActiveText}" Width="110" />
+                        <DataGridTextColumn Header="{Binding Path=[Name], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="{Binding Path=[Category], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Category}" Width="170" />
+                        <DataGridTextColumn Header="{Binding Path=[Price], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding PriceText}" Width="120" />
+                        <DataGridTextColumn Header="{Binding Path=[Quantity], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Quantity}" Width="90" />
+                        <DataGridTextColumn Header="{Binding Path=[Stock], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding StockText}" Width="140" />
+                        <DataGridTextColumn Header="{Binding Path=[Status], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding ActiveText}" Width="110" />
                     </DataGrid.Columns>
                 </DataGrid>
             </DockPanel>
@@ -111,35 +112,35 @@
                            Foreground="#17202B"
                            Margin="0,0,0,16" />
 
-                <TextBlock Text="Назва" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBlock Text="{Binding Path=T[Name]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                 <TextBox Text="{Binding ProductName, UpdateSourceTrigger=PropertyChanged}"
                          IsEnabled="{Binding IsProductEditorOpen}"
                          MinHeight="34"
                          Padding="8"
                          Margin="0,0,0,12" />
 
-                <TextBlock Text="Категорія" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBlock Text="{Binding Path=T[Category]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                 <TextBox Text="{Binding ProductCategory, UpdateSourceTrigger=PropertyChanged}"
                          IsEnabled="{Binding IsProductEditorOpen}"
                          MinHeight="34"
                          Padding="8"
                          Margin="0,0,0,12" />
 
-                <TextBlock Text="Ціна" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBlock Text="{Binding Path=T[Price]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                 <TextBox Text="{Binding ProductPrice, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
                          IsEnabled="{Binding IsProductEditorOpen}"
                          MinHeight="34"
                          Padding="8"
                          Margin="0,0,0,12" />
 
-                <TextBlock Text="Кількість" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBlock Text="{Binding Path=T[Quantity]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
                 <TextBox Text="{Binding ProductQuantity, UpdateSourceTrigger=PropertyChanged}"
                          IsEnabled="{Binding IsProductEditorOpen}"
                          MinHeight="34"
                          Padding="8"
                          Margin="0,0,0,12" />
 
-                <CheckBox Content="Товар активний"
+                <CheckBox Content="{Binding Path=T[ProductActive]}"
                           IsChecked="{Binding ProductIsActive}"
                           IsEnabled="{Binding IsProductEditorOpen}"
                           Margin="0,0,0,14" />
@@ -157,16 +158,16 @@
                 </Border>
 
                 <StackPanel Orientation="Horizontal">
-                    <Button Content="Зберегти"
+                    <Button Content="{Binding Path=T[Save]}"
                             Command="{Binding SaveProductCommand}"
                             Style="{StaticResource ActionButtonStyle}"
                             Margin="0,0,8,0" />
-                    <Button Content="Скасувати"
+                    <Button Content="{Binding Path=T[Cancel]}"
                             Command="{Binding CancelProductEditCommand}"
                             Style="{StaticResource ActionButtonStyle}" />
                 </StackPanel>
 
-                <TextBlock Text="Додавання та редагування доступні тільки адміністратору."
+                <TextBlock Text="{Binding Path=T[ProductAdminOnly]}"
                            TextWrapping="Wrap"
                            Foreground="#687789"
                            FontSize="12"
