@@ -103,7 +103,7 @@
                                 <StackPanel Grid.Column="1" Margin="22,0,0,0">
                                     <TextBlock Text="Звіт для керівника" FontSize="16" FontWeight="SemiBold" Foreground="#17202B" />
                                     <TextBlock Text="{Binding ReportPeriodText}" Foreground="#687789" Margin="0,4,0,0" />
-                                    <TextBox Text="{Binding ManagerReportText}"
+                                    <TextBox Text="{Binding ManagerReportText, Mode=OneWay}"
                                              Margin="0,12,0,0"
                                              Padding="10"
                                              MinHeight="150"

@@ -41,7 +41,7 @@ public class ReportsController(AppDbContext context) : ControllerBase
     [HttpGet("orders/today")]
     public async Task<ActionResult<TodayOrdersReportDto>> GetTodayOrdersReport([FromQuery] DateTime? date = null, CancellationToken ct = default)
     {
-        DateTime reportDate = (date ?? DateTime.Today).Date;
+        DateTime reportDate = ToUtcDate(date ?? DateTime.UtcNow);
         DateTime nextDate = reportDate.AddDays(1);
 
         var orders = await GetOrdersQuery()
@@ -116,14 +116,22 @@ public class ReportsController(AppDbContext context) : ControllerBase
 
     private IQueryable<ProductSalesReportItemDto> GetProductSalesQuery(DateTime? from = null, DateTime? to = null)
     {
-        DateTime? dateFrom = from?.Date;
-        DateTime? dateTo = to?.Date.AddDays(1);
+        DateTime? dateFrom = from.HasValue ? ToUtcDate(from.Value) : null;
+        DateTime? dateTo = to.HasValue ? ToUtcDate(to.Value).AddDays(1) : null;
 
         var query = from item in context.Set<OrderItemEntity>().AsNoTracking()
             join order in context.Set<OrderEntity>().AsNoTracking() on item.OrderId equals order.Id
             join product in context.Set<ProductEntity>().AsNoTracking() on item.ProductId equals product.Id
             join category in context.Set<ProductCategoryEntity>().AsNoTracking() on product.CategoryId equals category.Id
-            select new { item, order.CreatedAt, product.Id, product.Name, CategoryName = category.Name };
+            select new
+            {
+                item.Quantity,
+                item.UnitPrice,
+                order.CreatedAt,
+                product.Id,
+                product.Name,
+                CategoryName = category.Name
+            };
 
         if (dateFrom.HasValue)
         {
@@ -136,7 +144,7 @@ public class ReportsController(AppDbContext context) : ControllerBase
         }
 
         return from row in query
-            group row.item by new { row.Id, row.Name, row.CategoryName } into grouped
+            group row by new { row.Id, row.Name, row.CategoryName } into grouped
             select new ProductSalesReportItemDto(
                 grouped.Key.Id,
                 grouped.Key.Name,
@@ -149,15 +157,22 @@ public class ReportsController(AppDbContext context) : ControllerBase
     {
         if (from.HasValue)
         {
-            query = query.Where(order => order.CreatedAt >= from.Value.Date);
+            DateTime dateFrom = ToUtcDate(from.Value);
+            query = query.Where(order => order.CreatedAt >= dateFrom);
         }
 
         if (to.HasValue)
         {
-            query = query.Where(order => order.CreatedAt < to.Value.Date.AddDays(1));
+            DateTime dateTo = ToUtcDate(to.Value).AddDays(1);
+            query = query.Where(order => order.CreatedAt < dateTo);
         }
 
         return query;
+    }
+
+    private static DateTime ToUtcDate(DateTime value)
+    {
+        return DateTime.SpecifyKind(value.Date, DateTimeKind.Utc);
     }
 
     private static string GetPeriodText(DateTime? from, DateTime? to)
