@@ -8,4 +8,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
     }
+
+    private void LoginView_Loaded(object sender, RoutedEventArgs e)
+    {
+
+    }
 }

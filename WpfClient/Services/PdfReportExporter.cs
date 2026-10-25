@@ -7,6 +7,7 @@ namespace WpfClient.Services;
 
 public static class PdfReportExporter
 {
+    private static LocalizationManager T => LocalizationManager.Instance;
     public static void Save(
         string filePath,
         int selectedReportIndex,
@@ -39,7 +40,7 @@ public static class PdfReportExporter
                 page.Header().Column(column =>
                 {
                     column.Item().Text(GetTitle(selectedReportIndex)).FontSize(20).Bold().FontColor("#255C99");
-                    column.Item().Text($"Сформовано: {DateTime.Now:dd.MM.yyyy HH:mm}").FontSize(9).FontColor("#687789");
+                    column.Item().Text(T.Format("PdfGenerated", DateTime.Now)).FontSize(9).FontColor("#687789");
                     column.Item().PaddingTop(8).LineHorizontal(1).LineColor("#D9E1EA");
                 });
 
@@ -62,16 +63,16 @@ public static class PdfReportExporter
                     else
                     {
                         column.Item().Element(block => AddSummary(block, summary));
-                        column.Item().Text($"Період: {reportDateFrom:dd.MM.yyyy} - {reportDateTo:dd.MM.yyyy}").FontColor("#687789");
+                        column.Item().Text(T.Format("PeriodRange", reportDateFrom, reportDateTo)).FontColor("#687789");
                         column.Item().Element(block => AddManagerText(block, managerText));
                     }
                 });
 
                 page.Footer().AlignCenter().Text(text =>
                 {
-                    text.Span("Сторінка ");
+                    text.Span(T["PdfPage"]);
                     text.CurrentPageNumber();
-                    text.Span(" з ");
+                    text.Span(T["PdfOf"]);
                     text.TotalPages();
                 });
             });
@@ -82,10 +83,10 @@ public static class PdfReportExporter
     {
         return selectedReportIndex switch
         {
-            1 => "Замовлення за дату",
-            2 => "Продажі по товарах",
-            3 => "Низькі залишки",
-            _ => "Загальне зведення"
+            1 => T["ByDateTab"],
+            2 => T["ProductsTab"],
+            3 => T["LowStockTab"],
+            _ => T["ReportSummaryTab"]
         };
     }
 
@@ -93,7 +94,7 @@ public static class PdfReportExporter
     {
         container.Column(column =>
         {
-            column.Item().Text("Загальне зведення").FontSize(14).Bold().FontColor("#17202B");
+            column.Item().Text(T["ReportSummaryTab"]).FontSize(14).Bold().FontColor("#17202B");
             column.Item().PaddingTop(8).Table(table =>
             {
                 table.ColumnsDefinition(columns =>
@@ -104,10 +105,10 @@ public static class PdfReportExporter
                     columns.RelativeColumn();
                 });
 
-                AddMetric(table, "Замовлень", summary.TotalOrders.ToString());
-                AddMetric(table, "Загальна сума", summary.TotalAmountText);
-                AddMetric(table, "Середній чек", summary.AverageOrderAmountText);
-                AddMetric(table, "Низькі залишки", summary.LowStockProducts.ToString());
+                AddMetric(table, T["TotalOrders"], summary.TotalOrders.ToString());
+                AddMetric(table, T["TotalAmount"], summary.TotalAmountText);
+                AddMetric(table, T["AverageCheck"], summary.AverageOrderAmountText);
+                AddMetric(table, T["LowStockTab"], summary.LowStockProducts.ToString());
             });
 
             column.Item().PaddingTop(8).Table(table =>
@@ -121,14 +122,14 @@ public static class PdfReportExporter
                     columns.RelativeColumn();
                 });
 
-                AddSmallMetric(table, "Нові", summary.NewOrders);
-                AddSmallMetric(table, "В роботі", summary.OrdersInProgress);
-                AddSmallMetric(table, "Відвантажені", summary.ShippedOrders);
-                AddSmallMetric(table, "Рахунки", summary.InvoicedOrders);
-                AddSmallMetric(table, "Скасовані", summary.CancelledOrders);
+                AddSmallMetric(table, T["NewOrders"], summary.NewOrders);
+                AddSmallMetric(table, T["InProgress"], summary.OrdersInProgress);
+                AddSmallMetric(table, T["Shipped"], summary.ShippedOrders);
+                AddSmallMetric(table, T["Invoiced"], summary.InvoicedOrders);
+                AddSmallMetric(table, T["Cancelled"], summary.CancelledOrders);
             });
 
-            column.Item().PaddingTop(8).Text($"Топ-товар: {summary.TopProductText}").SemiBold();
+            column.Item().PaddingTop(8).Text(T.Format("PdfTopProduct", summary.TopProductText)).SemiBold();
         });
     }
 
@@ -136,14 +137,14 @@ public static class PdfReportExporter
     {
         container.Column(column =>
         {
-            column.Item().Text("Звіт для керівника").FontSize(14).Bold().FontColor("#17202B");
+            column.Item().Text(T["ManagerReport"]).FontSize(14).Bold().FontColor("#17202B");
             column.Item()
                 .PaddingTop(8)
                 .Background("#F8FAFC")
                 .Border(1)
                 .BorderColor("#D9E1EA")
                 .Padding(10)
-                .Text(string.IsNullOrWhiteSpace(managerText) ? "Немає даних." : managerText)
+                .Text(string.IsNullOrWhiteSpace(managerText) ? T["NoData"] : managerText)
                 .LineHeight(1.25f);
         });
     }
@@ -157,8 +158,8 @@ public static class PdfReportExporter
     {
         container.Column(column =>
         {
-            column.Item().Text($"Замовлення за дату {reportDate:dd.MM.yyyy}").FontSize(14).Bold().FontColor("#17202B");
-            column.Item().PaddingTop(4).Text($"Кількість: {ordersCount}. Сума: {totalAmount:N2} грн").FontColor("#687789");
+            column.Item().Text(T.Format("PdfDateOrders", reportDate)).FontSize(14).Bold().FontColor("#17202B");
+            column.Item().PaddingTop(4).Text(T.Format("PdfDateSummary", ordersCount, totalAmount)).FontColor("#687789");
 
             column.Item().PaddingTop(8).Table(table =>
             {
@@ -171,11 +172,11 @@ public static class PdfReportExporter
                     columns.ConstantColumn(86);
                 });
 
-                AddHeader(table, "Номер");
-                AddHeader(table, "Клієнт");
-                AddHeader(table, "Статус");
-                AddHeader(table, "Сума");
-                AddHeader(table, "Створено");
+                AddHeader(table, T["Number"]);
+                AddHeader(table, T["Customer"]);
+                AddHeader(table, T["Status"]);
+                AddHeader(table, T["Total"]);
+                AddHeader(table, T["Created"]);
 
                 foreach (TodayOrderReportItem order in orders)
                 {
@@ -188,7 +189,7 @@ public static class PdfReportExporter
 
                 if (orders.Count == 0)
                 {
-                    table.Cell().ColumnSpan(5).Element(CellStyle).Text("Замовлень за цю дату немає.").FontColor("#687789");
+                    table.Cell().ColumnSpan(5).Element(CellStyle).Text(T["PdfNoOrders"]).FontColor("#687789");
                 }
             });
         });
@@ -198,8 +199,8 @@ public static class PdfReportExporter
     {
         container.Column(column =>
         {
-            column.Item().Text("Продажі по товарах").FontSize(14).Bold().FontColor("#17202B");
-            column.Item().PaddingTop(4).Text($"Період: {dateFrom:dd.MM.yyyy} - {dateTo:dd.MM.yyyy}").FontColor("#687789");
+            column.Item().Text(T["ProductsTab"]).FontSize(14).Bold().FontColor("#17202B");
+            column.Item().PaddingTop(4).Text(T.Format("PeriodRange", dateFrom, dateTo)).FontColor("#687789");
             column.Item().PaddingTop(8).Table(table =>
             {
                 table.ColumnsDefinition(columns =>
@@ -210,10 +211,10 @@ public static class PdfReportExporter
                     columns.ConstantColumn(95);
                 });
 
-                AddHeader(table, "Товар");
-                AddHeader(table, "Категорія");
-                AddHeader(table, "К-сть");
-                AddHeader(table, "Сума");
+                AddHeader(table, T["Product"]);
+                AddHeader(table, T["Category"]);
+                AddHeader(table, T["Quantity"]);
+                AddHeader(table, T["Total"]);
 
                 foreach (ProductSalesReportItem product in products)
                 {
@@ -225,7 +226,7 @@ public static class PdfReportExporter
 
                 if (products.Count == 0)
                 {
-                    table.Cell().ColumnSpan(4).Element(CellStyle).Text("Даних по товарах немає.").FontColor("#687789");
+                    table.Cell().ColumnSpan(4).Element(CellStyle).Text(T["PdfNoProducts"]).FontColor("#687789");
                 }
             });
         });
@@ -235,7 +236,7 @@ public static class PdfReportExporter
     {
         container.Column(column =>
         {
-            column.Item().Text("Низькі залишки").FontSize(14).Bold().FontColor("#17202B");
+            column.Item().Text(T["LowStockTab"]).FontSize(14).Bold().FontColor("#17202B");
             column.Item().PaddingTop(8).Table(table =>
             {
                 table.ColumnsDefinition(columns =>
@@ -246,10 +247,10 @@ public static class PdfReportExporter
                     columns.ConstantColumn(95);
                 });
 
-                AddHeader(table, "Товар");
-                AddHeader(table, "Категорія");
-                AddHeader(table, "Залишок");
-                AddHeader(table, "Ціна");
+                AddHeader(table, T["Product"]);
+                AddHeader(table, T["Category"]);
+                AddHeader(table, T["Quantity"]);
+                AddHeader(table, T["Price"]);
 
                 foreach (LowStockProductReportItem product in products)
                 {
@@ -261,7 +262,7 @@ public static class PdfReportExporter
 
                 if (products.Count == 0)
                 {
-                    table.Cell().ColumnSpan(4).Element(CellStyle).Text("Товарів з низьким залишком немає.").FontColor("#687789");
+                    table.Cell().ColumnSpan(4).Element(CellStyle).Text(T["PdfNoLowStock"]).FontColor("#687789");
                 }
             });
         });

@@ -20,7 +20,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IReadOnlyList<NavigationItem> _allNavigationItems;
     private readonly List<OrderListItem> _allOrders = [];
     private readonly List<ProductListItem> _allProducts = [];
-    private readonly List<OrderDetail> _loadedOrderDetails = [];
+    private readonly ObservableCollection<TestUser> _serverUsers = [];
+    private bool _usersAvailable;
+    private bool _customersAvailable;
+    private string? _usersLoadError;
+    private int _currentUserId;
+    private bool _isUserSaving;
+    private readonly ObservableCollection<KanbanColumn> kanbanColumns = [
+        new() { Status = "NewOrder" },
+        new() { Status = "Registered" },
+        new() { Status = "Granted" },
+        new() { Status = "Shipped" },
+        new() { Status = "Invoiced" },
+        new() { Status = "Cancelled" }
+        ];
     private NavigationItem _selectedItem;
     private UserControl _currentView;
     private TestUser _selectedLoginUser;
@@ -57,6 +70,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _currentRoleName;
     private string _orderSearchText = string.Empty;
     private string _orderStatusFilter = "Усі";
+    private string _kanbanSearchText = string.Empty;
+    private string _kanbanStatusFilter = "Усі";
     private string _productSearchText = string.Empty;
     private bool _showOnlyLowStockProducts;
     private string _userLogin = string.Empty;
@@ -76,10 +91,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _productIsActive = true;
     private LanguageOption _selectedLanguage;
 
-    public MainViewModel()
+    private int _detailVersion;
+    private int _sessionVersion;
+    private int _reportVersion;
+    private bool _reportsBusy;
+    private bool _isSigningIn;
+    private ReportSnapshot? _reportSnapshot;
+    private string? _reportErrorMessage;
+    private string _loginName = string.Empty;
+
+    public MainViewModel() : this(ApiClientSettings.Load(), null) { }
+
+    public MainViewModel(ApiClientSettings settings, IOrdersApiClient? client)
     {
-        _apiSettings = ApiClientSettings.Load();
-        _apiClient = OrdersApiClientFactory.Create(_apiSettings);
+        _apiSettings = settings;
+        _apiClient = client ?? OrdersApiClientFactory.Create(_apiSettings);
+        if (_apiClient is HttpOrdersApiClient http)
+            http.SessionExpired += () =>
+            {
+                void EndSession()
+                {
+                    SignOut();
+                    LoginError = T["SessionExpired"];
+                }
+                if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+                    dispatcher.Invoke(EndSession);
+                else EndSession();
+            };
         _selectedLanguage = LanguageOptions[0];
         T.PropertyChanged += (_, _) => RefreshLanguageText();
 
@@ -96,7 +134,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             new NavigationItem("Dashboard", "NavDashboard", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
             new NavigationItem("Orders", "NavOrders", new OrdersView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
             new NavigationItem("Kanban", "NavKanban", new KanbanView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
-            new NavigationItem("Products", "NavProducts", new ProductsView(), new[] { "Admin", "Viewer", "Director" }),
+            new NavigationItem("Products", "NavProducts", new ProductsView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
             new NavigationItem("Users", "NavUsers", new UsersView(), new[] { "Admin", "Director" }),
             new NavigationItem("Reports", "NavReports", new ReportsView(), new[] { "Admin", "Viewer", "Director" })
         };
@@ -114,18 +152,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
-        RefreshReportsCommand = new RelayCommand(async _ => await LoadReportsAsync(), _ => IsAuthenticated && !IsLoading);
-        ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => IsAuthenticated && !IsLoading && CanViewReports);
+        RefreshReportsCommand = new RelayCommand(async _ => await LoadReportsAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
+        ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
         ClearOrderFiltersCommand = new RelayCommand(_ => ClearOrderFilters(), _ => HasOrderFilters);
+        ClearKanbanFiltersCommand = new RelayCommand(_ => ClearKanbanFilters(), _ => HasKanbanFilters);
         ClearProductFiltersCommand = new RelayCommand(_ => ClearProductFilters(), _ => HasProductFilters);
         OpenProductPriceSearchCommand = new RelayCommand(_ => OpenProductPriceSearch(), _ => SelectedProduct is not null);
         OpenLowStockProductsCommand = new RelayCommand(_ => OpenLowStockProducts(), _ => HasLowStockProducts);
         ChangeOrderStatusCommand = new RelayCommand(
             async action => await ChangeOrderStatusAsync(action as string),
             action => CanExecuteOrderStatusAction(action as string));
-        BeginCreateOrderCommand = new RelayCommand(_ => BeginCreateOrder(), _ => CanManageOrders);
+        BeginCreateOrderCommand = new RelayCommand(_ => BeginCreateOrder(), _ => CanManageOrders && !IsLoading && Products.Any(p => p.IsActive));
         OpenOrderEditorCommand = new RelayCommand(_ => OpenOrderEditor(), _ => CanEditSelectedOrder);
-        OpenSelectOrderCustomerCommand = new RelayCommand(_ => OpenSelectOrderCustomerDialog(), _ => IsCreatingOrder && Customers.Count > 0);
+        OpenSelectOrderCustomerCommand = new RelayCommand(_ => OpenSelectOrderCustomerDialog(), _ => IsCreatingOrder);
         OpenAddOrderProductCommand = new RelayCommand(_ => OpenAddOrderProductDialog(), _ => CanEditOrderDraft && Products.Count > 0);
         AddOrderItemCommand = new RelayCommand(_ => AddOrderItemToDraft(), _ => CanEditOrderDraft && SelectedOrderItemProduct is not null && OrderItemQuantity > 0);
         RemoveOrderItemCommand = new RelayCommand(_ => RemoveOrderItemFromDraft(), _ => CanEditOrderDraft && SelectedOrderItem is not null);
@@ -135,10 +174,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CancelProductEditCommand = new RelayCommand(_ => CloseProductEditor(), _ => IsProductEditorOpen);
         BeginAddUserCommand = new RelayCommand(_ => BeginAddUser(), _ => CanManageUsers);
         BeginEditUserCommand = new RelayCommand(_ => BeginEditUser(), _ => CanManageUsers && SelectedUser is not null);
-        SaveUserCommand = new RelayCommand(_ => SaveUser(), _ => CanManageUsers && IsUserEditorOpen);
+        SaveUserCommand = new RelayCommand(async _ => await SaveUserAsync(), _ => CanManageUsers && IsUserEditorOpen);
+        ChangeUserPasswordCommand = new RelayCommand(async _ => await ChangeUserPasswordAsync(), _ => CanManageUsers && IsEditingUser && !string.IsNullOrWhiteSpace(UserPassword));
         CancelUserEditCommand = new RelayCommand(_ => CloseUserEditor(), _ => IsUserEditorOpen);
 
         _selectedLoginUser = TestUsers[0];
+        if (!_apiSettings.UseMockData) SelectedUser = null;
         _selectedUser = TestUsers[0];
         _selectedItem = _allNavigationItems[0];
         _currentView = _selectedItem.View;
@@ -175,16 +216,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<OrderListItem> Orders { get; } = [];
 
-    public ObservableCollection<KanbanColumn> KanbanColumns { get; } =
-    [
-        new() { Status = "NewOrder" },
-        new() { Status = "Registered" },
-        new() { Status = "Granted" },
-        new() { Status = "Shipped" },
-        new() { Status = "Invoiced" },
-        new() { Status = "Cancelled" }
-    ];
-
+    public ObservableCollection<KanbanColumn> KanbanColumns => kanbanColumns;
     public ObservableCollection<OrderDetailItem> EditableOrderItems { get; } = [];
 
     public ObservableCollection<CustomerListItem> Customers { get; } = [];
@@ -199,6 +231,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<LowStockProductReportItem> LowStockReport { get; } = [];
 
+    public ObservableCollection<TestUser> Users => IsMockMode ? TestUsers : _serverUsers;
+    public bool IsUserManagementAvailable => IsMockMode || _usersAvailable;
+    public bool IsCustomerManagementAvailable => IsRealMode && _customersAvailable && CanManageOrders;
+    public bool IsUserEditorEnabled => !_isUserSaving;
+    public bool IsEditingUser => _isEditingUser;
     public ObservableCollection<TestUser> TestUsers { get; }
 
     public IReadOnlyList<string> RoleOptions { get; } = ["Admin", "Manager", "Viewer", "Director"];
@@ -216,6 +253,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ExportReportsToPdfCommand { get; }
 
     public ICommand ClearOrderFiltersCommand { get; }
+
+    public ICommand ClearKanbanFiltersCommand { get; }
 
     public ICommand ClearProductFiltersCommand { get; }
 
@@ -250,6 +289,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand BeginEditUserCommand { get; }
 
     public ICommand SaveUserCommand { get; }
+    public ICommand ChangeUserPasswordCommand { get; }
 
     public ICommand CancelUserEditCommand { get; }
 
@@ -296,7 +336,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _isLoading = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanManageProducts));
+            OnPropertyChanged(nameof(CanEditSelectedOrder));
+            OnPropertyChanged(nameof(CanEditOrderDraft));
             OnPropertyChanged(nameof(LoadingStatusText));
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
@@ -372,6 +416,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             _reportDateFrom = value;
+            InvalidateReports();
             OnPropertyChanged();
             OnPropertyChanged(nameof(ReportPeriodText));
         }
@@ -388,12 +433,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             _reportDateTo = value;
+            InvalidateReports();
             OnPropertyChanged();
             OnPropertyChanged(nameof(ReportPeriodText));
         }
     }
 
-    public string ReportPeriodText => $"Період: {ReportDateFrom:dd.MM.yyyy} - {ReportDateTo:dd.MM.yyyy}";
+    public string ReportPeriodText => T.Format("PeriodRange", ReportDateFrom, ReportDateTo);
 
     public DateTime TodayReportDate
     {
@@ -406,6 +452,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             _todayReportDate = value;
+            InvalidateReports();
             OnPropertyChanged();
             OnPropertyChanged(nameof(TodayReportSummaryText));
         }
@@ -444,7 +491,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public string TodayReportSummaryText =>
-        $"Дата: {TodayReportDate:dd.MM.yyyy}. Замовлень: {TodayReportTotalOrders}. Сума: {TodayReportTotalAmount:N2} грн";
+        T.Format("TodayReportSummary", TodayReportDate, TodayReportTotalOrders, TodayReportTotalAmount);
 
     public string ManagerReportText
     {
@@ -518,6 +565,45 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ? T.Format("ShownAllOrders", Orders.Count)
         : T.Format("ShownOrders", Orders.Count, _allOrders.Count);
 
+    public string KanbanSearchText
+    {
+        get => _kanbanSearchText;
+        set
+        {
+            if (_kanbanSearchText == value)
+            {
+                return;
+            }
+
+            _kanbanSearchText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasKanbanFilters));
+            ApplyKanbanFilters();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public string KanbanStatusFilter
+    {
+        get => _kanbanStatusFilter;
+        set
+        {
+            if (_kanbanStatusFilter == value)
+            {
+                return;
+            }
+
+            _kanbanStatusFilter = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasKanbanFilters));
+            ApplyKanbanFilters();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool HasKanbanFilters =>
+        !string.IsNullOrWhiteSpace(KanbanSearchText) || KanbanStatusFilter != T["All"];
+
     public OrderListItem? SelectedOrder
     {
         get => _selectedOrder;
@@ -550,6 +636,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _selectedOrderDetails = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedOrderDetails));
+            OnPropertyChanged(nameof(CanUseAtomicOrderEdit));
+            OnPropertyChanged(nameof(IsOrderCommentReadOnly));
+            OnPropertyChanged(nameof(OrderEditCapabilities));
             OnPropertyChanged(nameof(IsSelectedOrderEditable));
             OnPropertyChanged(nameof(CanEditSelectedOrder));
             OnPropertyChanged(nameof(CanEditOrderDraft));
@@ -560,15 +649,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool HasSelectedOrderDetails => SelectedOrderDetails is not null;
 
-    public bool IsSelectedOrderEditable => SelectedOrderDetails?.Status is "NewOrder" or "Registered";
+    public bool IsSelectedOrderEditable => SelectedOrderDetails is { IsStatusFinal: false } && SelectedOrderDetails.Status is "NewOrder" or "Registered";
 
     public bool CanEditSelectedOrder => CanManageOrders
+        && !IsLoading
         && IsSelectedOrderEditable
         && HasSelectedOrderDetails
+        && CanUseAtomicOrderEdit
         && Products.Count > 0;
 
     public bool CanEditOrderDraft => CanManageOrders
-        && (IsCreatingOrder || IsSelectedOrderEditable)
+        && !IsLoading
+        && !_isOrderSaving
+        && (IsCreatingOrder || (IsSelectedOrderEditable && CanUseAtomicOrderEdit))
         && Products.Count > 0;
 
     public bool IsCreatingOrder
@@ -583,6 +676,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _isCreatingOrder = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsOrderCommentReadOnly));
+            OnPropertyChanged(nameof(OrderEditCapabilities));
             OnPropertyChanged(nameof(IsEditingOrder));
             OnPropertyChanged(nameof(CanEditOrderDraft));
             CommandManager.InvalidateRequerySuggested();
@@ -1160,19 +1255,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string CurrentTitle => SelectedItem.Title;
 
-    public bool CanManageOrders => CurrentRoleName is "Admin" or "Manager" or "Director";
+    public bool IsMockMode => _apiSettings.UseMockData;
+    public bool IsRealMode => !IsMockMode;
+    public string LoginHelpText => T[IsMockMode ? "LoginHelp" : "RealLoginHelp"];
+    public string LoginSubtitleText => T[IsMockMode ? "LoginSubtitle" : "RealLoginSubtitle"];
+    public string LoginName { get => _loginName; set { _loginName = value; OnPropertyChanged(); } }
+    public bool IsSigningIn => _isSigningIn;
+    public bool CanSignIn => !_isSigningIn;
+    public bool CanUseAtomicOrderEdit => IsMockMode || !string.IsNullOrWhiteSpace(SelectedOrderDetails?.Version);
+    public bool IsOrderCommentReadOnly => !IsCreatingOrder && !CanUseAtomicOrderEdit;
+    public bool IsOrderEditorEnabled => !_isOrderSaving;
+    public string OrderEditCapabilities => T[IsMockMode ? "MockData" : IsCreatingOrder ? (_customersAvailable ? "CustomerApiReady" : "CustomerApiLimited") : CanUseAtomicOrderEdit ? "OrderApiReady" : "OrderApiLimited"];
+    public string UsersUnavailableText => _usersLoadError ?? T["UsersApiUnavailable"];
+    public bool CanManageOrders => IsAuthenticated && (CurrentRoleName is "Admin" or "Manager" or "Director");
 
-    public bool CanManageProducts => CurrentRoleName is "Admin";
+    public bool CanManageProducts => IsAuthenticated && !IsLoading && (CurrentRoleName is "Admin" or "Director");
 
-    public bool CanManageUsers => CurrentRoleName is "Admin";
+    public bool CanManageUsers => IsAuthenticated && IsUserManagementAvailable && !_isUserSaving && CurrentRoleName is "Admin";
 
-    public bool CanViewReports => CurrentRoleName is "Admin" or "Viewer" or "Director";
+    public bool CanViewReports => IsAuthenticated && (CurrentRoleName is "Admin" or "Viewer" or "Director");
 
     public async Task<bool> SignInAsync(string password)
     {
+        if (_isSigningIn) return false;
+        if (_apiSettings.ConfigurationError is { } configurationError)
+        {
+            LoginError = configurationError;
+            return false;
+        }
         if (_apiSettings.UseMockData)
         {
             return SignInLocally(password);
+        }
+        if (string.IsNullOrWhiteSpace(LoginName))
+        {
+            LoginError = T["EnterLogin"];
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(password))
@@ -1187,12 +1305,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
+        _isSigningIn = true;
+        OnPropertyChanged(nameof(CanSignIn));
+        OnPropertyChanged(nameof(IsSigningIn));
         try
         {
-            AuthenticatedUser user = await authApiClient.SignInAsync(SelectedLoginUser.Login, password);
+            AuthenticatedUser user = await authApiClient.SignInAsync(LoginName.Trim(), password);
+            _sessionVersion++;
 
             LoginError = null;
             IsAuthenticated = true;
+            _currentUserId = user.Id;
             CurrentUserName = user.FullName;
             CurrentRoleName = user.Role;
 
@@ -1202,12 +1325,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             await LoadClientDataAsync();
-            return true;
+            return IsAuthenticated;
         }
         catch (Exception exception)
         {
             LoginError = $"Не вдалося увійти через API. Деталі: {exception.Message}";
             return false;
+        }
+        finally
+        {
+            _isSigningIn = false;
+            OnPropertyChanged(nameof(CanSignIn));
+            OnPropertyChanged(nameof(IsSigningIn));
         }
     }
 
@@ -1231,6 +1360,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
+        _sessionVersion++;
         LoginError = null;
         IsAuthenticated = true;
         CurrentUserName = SelectedLoginUser.FullName;
@@ -1247,6 +1377,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void SignOut()
     {
+        _sessionVersion++;
+        _currentUserId = 0;
+        _serverUsers.Clear();
+        _usersAvailable = false;
+        _customersAvailable = false;
+        _usersLoadError = null;
+        NotifyManagement();
+        InvalidateReports();
+        IsLoading = false;
+        IsOrderDetailsLoading = false;
+        SelectedOrderCustomer = null;
+        SelectedOrderItemProduct = null;
         if (_apiClient is IAuthApiClient authApiClient)
         {
             authApiClient.SignOut();
@@ -1259,7 +1401,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ApiErrorMessage = null;
         _allOrders.Clear();
         _allProducts.Clear();
-        _loadedOrderDetails.Clear();
         Orders.Clear();
         ClearKanbanColumns();
         SelectedOrder = null;
@@ -1272,6 +1413,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedOrderItem = null;
         OrderSearchText = string.Empty;
         OrderStatusFilter = T["All"];
+        KanbanSearchText = string.Empty;
+        KanbanStatusFilter = T["All"];
         ProductSearchText = string.Empty;
         ShowOnlyLowStockProducts = false;
         IsCreatingOrder = false;
@@ -1304,15 +1447,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RefreshLanguageText()
     {
+        NotifyReports();
+        OnPropertyChanged(nameof(LoginHelpText));
+        OnPropertyChanged(nameof(LoginSubtitleText));
+        OnPropertyChanged(nameof(ReportPeriodText));
+        OnPropertyChanged(nameof(TodayReportSummaryText));
+        OnPropertyChanged(nameof(UsersUnavailableText));
+        OnPropertyChanged(nameof(OrderEditCapabilities));
         string? selectedStatusCode = OrderStatusNames.ToCode(OrderStatusFilter);
+        string? selectedKanbanStatusCode = OrderStatusNames.ToCode(KanbanStatusFilter);
 
         UpdateOrderStatusFilterOptions();
         OrderStatusFilter = selectedStatusCode is null ? T["All"] : OrderStatusNames.ToText(selectedStatusCode);
+        KanbanStatusFilter = selectedKanbanStatusCode is null ? T["All"] : OrderStatusNames.ToText(selectedKanbanStatusCode);
 
         OnPropertyChanged(nameof(ApiModeText));
         OnPropertyChanged(nameof(LoadingStatusText));
         OnPropertyChanged(nameof(CurrentTitle));
         OnPropertyChanged(nameof(OrderFilterSummaryText));
+        OnPropertyChanged(nameof(HasKanbanFilters));
         OnPropertyChanged(nameof(ProductFilterSummaryText));
         OnPropertyChanged(nameof(ProductEditorTitle));
         OnPropertyChanged(nameof(UserEditorTitle));
@@ -1326,6 +1479,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         ApplyOrderFilters();
+        ApplyKanbanFilters();
         ApplyProductFilters();
     }
 
@@ -1347,6 +1501,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task LoadClientDataAsync()
     {
+        if (IsLoading || !IsAuthenticated) return;
+        int session = _sessionVersion;
         IsLoading = true;
         ApiErrorMessage = null;
 
@@ -1354,6 +1510,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             int? selectedOrderId = SelectedOrder?.Id;
             IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
+            if (session != _sessionVersion || !IsAuthenticated) return;
             IReadOnlyList<ProductListItem> products;
             string? productLoadError = null;
 
@@ -1363,27 +1520,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             catch (Exception exception)
             {
-                products = _allProducts.Count > 0 ? _allProducts.ToList() : LocalCatalog.CreateProducts();
+                products = [];
                 productLoadError = $"Замовлення отримано, але не вдалося завантажити товари з API. Деталі: {exception.Message}";
             }
 
+            if (session != _sessionVersion || !IsAuthenticated) return;
             _allOrders.Clear();
             _allOrders.AddRange(orders);
             _allProducts.Clear();
             _allProducts.AddRange(products);
-            _loadedOrderDetails.Clear();
-
-            foreach (OrderListItem order in orders)
-            {
-                OrderDetail? details = await _apiClient.GetOrderDetailsAsync(order.Id);
-                if (details is not null)
-                {
-                    _loadedOrderDetails.Add(details);
-                }
-            }
 
             ApplyOrderFilters();
+            ApplyKanbanFilters();
             RefreshCustomersFromOrders(_allOrders);
+            if (_apiClient is IManagementApiClient management)
+            {
+                try
+                {
+                    var customers = await management.GetCustomersAsync();
+                    if (session != _sessionVersion) return;
+                    ReplaceCollection(Customers, customers);
+                    _customersAvailable = true;
+                }
+                catch (Exception ex)
+                {
+                    if (session != _sessionVersion) return;
+                    _customersAvailable = false;
+                    ApiErrorMessage = T["CustomersLoadFailed"] + " " + ex.Message;
+                }
+                NotifyManagement();
+                if (CurrentRoleName is "Admin" or "Director") await LoadUsersAsync(management, session);
+            }
+            if (session != _sessionVersion || !IsAuthenticated) return;
             OrderListItem? nextSelectedOrder = Orders.FirstOrDefault(order => order.Id == selectedOrderId)
                 ?? Orders.FirstOrDefault();
 
@@ -1395,15 +1563,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 SelectedOrder = nextSelectedOrder;
             }
+            if (session != _sessionVersion || !IsAuthenticated) return;
 
             ReplaceCollection(Products, _allProducts);
             ApplyProductFilters();
             SelectedProduct = FilteredProducts.FirstOrDefault() ?? Products.FirstOrDefault();
-            SelectedOrderItemProduct ??= Products.FirstOrDefault(product => product.IsActive) ?? Products.FirstOrDefault();
+            SelectedOrderItemProduct = Products.FirstOrDefault(product => product.Id == SelectedOrderItemProduct?.Id && product.IsActive)
+                ?? Products.FirstOrDefault(product => product.IsActive);
             OnPropertyChanged(nameof(CanEditSelectedOrder));
             OnPropertyChanged(nameof(CanEditOrderDraft));
-            Summary = BuildReportSummary(_allOrders, _allProducts, _loadedOrderDetails);
-            await LoadReportsAsync();
+            Summary = BuildReportSummary(_allOrders, _allProducts);
+            if (CanViewReports) await Task.WhenAll(LoadReportsAsync(), LoadDashboardSummaryAsync(session));
+            if (session != _sessionVersion || !IsAuthenticated) return;
 
             if (productLoadError is not null)
             {
@@ -1412,43 +1583,78 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception exception)
         {
-            ApiErrorMessage = $"Не вдалося отримати дані. Перевірте підключення до API або увімкніть mock-дані. Деталі: {exception.Message}";
+            if (session == _sessionVersion && IsAuthenticated)
+                ApiErrorMessage = $"Не вдалося отримати дані з API. Деталі: {exception.Message}";
         }
         finally
         {
-            IsLoading = false;
+            if (session == _sessionVersion) IsLoading = false;
         }
     }
 
-    private async Task LoadReportsAsync()
+    public bool IsReportsLoading => _reportsBusy;
+    public bool HasLoadedReports => _reportSnapshot is not null;
+    public bool HasReportsError => _reportErrorMessage is not null;
+    public ReportSummary ReportsSummary => _reportSnapshot?.Summary ?? new();
+    public string ReportsTotalAmountText => T.Format("TotalAmountLabel", ReportsSummary.TotalAmountText);
+    public string ReportsStateText => _reportErrorMessage ?? T[_reportsBusy ? "LoadingData" : HasLoadedReports ? "ReportsLoaded" : "ReportsNotLoaded"];
+
+    private void NotifyReports()
     {
+        OnPropertyChanged(nameof(IsReportsLoading));
+        OnPropertyChanged(nameof(HasLoadedReports));
+        OnPropertyChanged(nameof(HasReportsError));
+        OnPropertyChanged(nameof(ReportsSummary));
+        OnPropertyChanged(nameof(ReportsTotalAmountText));
+        OnPropertyChanged(nameof(ReportsStateText));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void InvalidateReports()
+    {
+        _reportVersion++;
+        _reportSnapshot = null;
+        _reportErrorMessage = null;
+        TodayReportOrders.Clear();
+        ProductSalesReport.Clear();
+        LowStockReport.Clear();
+        TodayReportTotalOrders = 0;
+        TodayReportTotalAmount = 0;
+        ManagerReportText = string.Empty;
+        NotifyReports();
+    }
+
+    private async Task<bool> LoadReportsAsync()
+    {
+        if (!CanViewReports || _reportsBusy) return false;
+        InvalidateReports();
+        int version = _reportVersion;
+        int session = _sessionVersion;
+        _reportsBusy = true;
+        NotifyReports();
         try
         {
-            if (ReportDateFrom.Date > ReportDateTo.Date)
-            {
-                ApiErrorMessage = "Дата початку періоду не може бути більшою за дату завершення.";
-                return;
-            }
-
-            Summary = await _apiClient.GetOrdersReportAsync(ReportDateFrom, ReportDateTo);
-
-            var todayReport = await _apiClient.GetTodayOrdersReportAsync(TodayReportDate);
-            TodayReportDate = todayReport.Date;
-            TodayReportTotalOrders = todayReport.TotalOrders;
-            TodayReportTotalAmount = todayReport.TotalAmount;
-            ReplaceCollection(TodayReportOrders, todayReport.Orders);
-
-            IReadOnlyList<ProductSalesReportItem> productSales = await _apiClient.GetProductSalesReportAsync(ReportDateFrom, ReportDateTo);
-            ReplaceCollection(ProductSalesReport, productSales);
-
-            IReadOnlyList<LowStockProductReportItem> lowStock = await _apiClient.GetLowStockReportAsync();
-            ReplaceCollection(LowStockReport, lowStock);
-
-            ManagerReportText = await _apiClient.GetManagerSummaryReportAsync(ReportDateFrom, ReportDateTo);
+            ReportSnapshot snapshot = await ReportSnapshot.LoadAsync(_apiClient, ReportDateFrom, ReportDateTo, TodayReportDate);
+            if (session != _sessionVersion || version != _reportVersion || !CanViewReports) return false;
+            _reportSnapshot = snapshot;
+            TodayReportTotalOrders = snapshot.DateOrdersCount;
+            TodayReportTotalAmount = snapshot.DateOrdersAmount;
+            ReplaceCollection(TodayReportOrders, snapshot.Orders);
+            ReplaceCollection(ProductSalesReport, snapshot.ProductSales);
+            ReplaceCollection(LowStockReport, snapshot.LowStock);
+            ManagerReportText = snapshot.ManagerText;
+            return true;
         }
         catch (Exception exception)
         {
-            ApiErrorMessage = $"Не вдалося завантажити звіти. Деталі: {exception.Message}";
+            if (session == _sessionVersion && version == _reportVersion)
+                _reportErrorMessage = T["ReportsLoadFailed"] + " " + exception.Message;
+            return false;
+        }
+        finally
+        {
+            _reportsBusy = false;
+            NotifyReports();
         }
     }
 
@@ -1456,11 +1662,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            await LoadReportsAsync();
+            if (!await LoadReportsAsync() || _reportSnapshot is not { } snapshot) return;
+            int selectedTab = SelectedReportTabIndex;
+            int session = _sessionVersion;
 
             SaveFileDialog dialog = new()
             {
-                Title = "Зберегти звіти в PDF",
+                Title = T["PdfSaveTitle"],
                 Filter = "PDF файл (*.pdf)|*.pdf",
                 FileName = GetPdfFileName(),
                 AddExtension = true,
@@ -1472,29 +1680,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
+            if (session != _sessionVersion || !CanViewReports) return;
             PdfReportExporter.Save(
-                dialog.FileName,
-                SelectedReportTabIndex,
-                Summary,
-                ReportDateFrom,
-                ReportDateTo,
-                TodayReportDate,
-                TodayReportTotalOrders,
-                TodayReportTotalAmount,
-                TodayReportOrders,
-                ProductSalesReport,
-                LowStockReport,
-                ManagerReportText);
+                dialog.FileName, selectedTab, snapshot.Summary,
+                snapshot.From, snapshot.To, snapshot.Date,
+                snapshot.DateOrdersCount, snapshot.DateOrdersAmount,
+                snapshot.Orders, snapshot.ProductSales, snapshot.LowStock, snapshot.ManagerText);
 
             MessageBox.Show(
-                "PDF-звіт збережено.",
-                "Звіти",
+                T["PdfSaved"],
+                T["ReportsTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
         }
         catch (Exception exception)
         {
-            ApiErrorMessage = $"Не вдалося зберегти PDF. Деталі: {exception.Message}";
+            ApiErrorMessage = T["PdfSaveFailed"] + " " + exception.Message;
         }
     }
 
@@ -1511,6 +1712,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task LoadSelectedOrderDetailsAsync()
     {
+        int version = ++_detailVersion;
+        int session = _sessionVersion;
+        int? orderId = SelectedOrder?.Id;
         if (SelectedOrder is null)
         {
             SelectedOrderDetails = null;
@@ -1518,23 +1722,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         IsOrderDetailsLoading = true;
-
+        SelectedOrderDetails = null;
+        SelectedOrderItem = null;
         try
         {
-            OrderDetail? details = await _apiClient.GetOrderDetailsAsync(SelectedOrder.Id);
+            OrderDetail? details = await _apiClient.GetOrderDetailsAsync(orderId!.Value);
+            if (session != _sessionVersion || version != _detailVersion || SelectedOrder?.Id != orderId) return;
             SelectedOrderDetails = null;
             SelectedOrderDetails = details;
             SelectedOrderItem = details?.Items.FirstOrDefault();
         }
         catch (Exception exception)
         {
+            if (session != _sessionVersion || version != _detailVersion) return;
             SelectedOrderDetails = null;
             SelectedOrderItem = null;
             ApiErrorMessage = $"Не вдалося отримати деталі замовлення. Деталі: {exception.Message}";
         }
         finally
         {
-            IsOrderDetailsLoading = false;
+            if (session == _sessionVersion && version == _detailVersion) IsOrderDetailsLoading = false;
         }
     }
 
@@ -1573,7 +1780,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool CanShowOrderStatusAction(string? action)
     {
-        if (!CanManageOrders || SelectedOrderDetails is null || string.IsNullOrWhiteSpace(action))
+        if (!CanManageOrders || SelectedOrderDetails is null || SelectedOrderDetails.IsStatusFinal || string.IsNullOrWhiteSpace(action))
         {
             return false;
         }
@@ -1604,8 +1811,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void BeginCreateOrder()
     {
+        if (!CanManageOrders || IsLoading || !Products.Any(p => p.IsActive)) return;
         IsCreatingOrder = true;
-        OrderNumber = $"ORD-{DateTime.Now:yyyyMMdd-HHmmss}";
+        OrderNumber = $"ORD-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}";
         OrderComment = string.Empty;
         EditableOrderItems.Clear();
         SelectedOrderItem = null;
@@ -1631,7 +1839,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         foreach (OrderDetailItem item in SelectedOrderDetails.Items)
         {
-            EditableOrderItems.Add(CloneOrderItem(item));
+            OrderDetailItem copy = CloneOrderItem(item);
+            copy.IsQuantityReadOnly = !CanUseAtomicOrderEdit;
+            EditableOrderItems.Add(copy);
         }
 
         SelectedOrderItem = EditableOrderItems.FirstOrDefault();
@@ -1718,6 +1928,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         if (existingItem is not null)
         {
+            if (existingItem.IsQuantityReadOnly)
+            {
+                OrderItemEditorError = T["OrderApiLimited"];
+                return;
+            }
             existingItem.Quantity += OrderItemQuantity;
             SelectedOrderItem = existingItem;
         }
@@ -1730,6 +1945,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ProductName = product.Name,
                 Quantity = OrderItemQuantity,
                 UnitPrice = product.Price,
+                CurrencyCode = product.CurrencyCode,
                 LineTotal = product.Price * OrderItemQuantity
             };
 
@@ -1756,13 +1972,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(OrderDraftTotalText));
     }
 
+    private bool _isOrderSaving;
     public async Task<bool> SaveOrderEditorAsync()
     {
-        if (!ValidateOrderDraft())
+        if (!CanEditOrderDraft || _isOrderSaving || IsOrderDetailsLoading || !ValidateOrderDraft())
         {
             return false;
         }
 
+        int session = _sessionVersion;
+        _isOrderSaving = true;
+        OnPropertyChanged(nameof(IsOrderEditorEnabled));
         ApiErrorMessage = null;
         IsOrderDetailsLoading = true;
 
@@ -1780,15 +2000,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         .ToList()
                 });
 
+                if (session != _sessionVersion) return false;
+                InvalidateReports();
                 await LoadClientDataAsync();
+                if (session != _sessionVersion) return false;
                 SelectedOrder = Orders.FirstOrDefault(order => order.Id == createdOrder.Id) ?? Orders.FirstOrDefault();
             }
             else if (SelectedOrderDetails is not null)
             {
                 await SaveEditedOrderItemsAsync(SelectedOrderDetails);
+                if (session != _sessionVersion) return false;
+                InvalidateReports();
                 await LoadClientDataAsync();
+                if (session != _sessionVersion) return false;
                 await LoadSelectedOrderDetailsAsync();
             }
+            if (session != _sessionVersion) return false;
 
             IsCreatingOrder = false;
             OrderItemEditorError = null;
@@ -1801,39 +2028,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         finally
         {
-            IsOrderDetailsLoading = false;
+            _isOrderSaving = false;
+            OnPropertyChanged(nameof(IsOrderEditorEnabled));
+            if (session == _sessionVersion) IsOrderDetailsLoading = false;
         }
     }
 
     private async Task SaveEditedOrderItemsAsync(OrderDetail order)
     {
-        foreach (OrderDetailItem originalItem in order.Items.Where(original => EditableOrderItems.All(item => item.Id != original.Id)))
-        {
-            await _apiClient.RemoveOrderItemAsync(order.Id, originalItem.Id);
-        }
-
-        foreach (OrderDetailItem item in EditableOrderItems)
-        {
-            if (item.Id == 0)
-            {
-                await _apiClient.AddOrderItemAsync(order.Id, new CreateOrderItemRequest
-                {
-                    ProductId = item.ProductId,
-                    Quantity = item.Quantity
-                });
-                continue;
-            }
-
-            OrderDetailItem? originalItem = order.Items.FirstOrDefault(original => original.Id == item.Id);
-            if (originalItem is not null && originalItem.Quantity != item.Quantity)
-            {
-                await _apiClient.ReplaceOrderItemAsync(order.Id, item.Id, new CreateOrderItemRequest
-                {
-                    ProductId = item.ProductId,
-                    Quantity = item.Quantity
-                });
-            }
-        }
+        if (_apiClient is not IOrderEditingApiClient editing)
+            throw new NotSupportedException(T["OrderApiLimited"]);
+        await editing.UpdateOrderAsync(order.Id, new(order.Version,
+            string.IsNullOrWhiteSpace(OrderComment) ? null : OrderComment.Trim(),
+            EditableOrderItems.Select(i => new UpdateOrderItemRequest(i.Id, i.ProductId, i.Quantity)).ToList()));
     }
 
     private bool ValidateOrderDraft()
@@ -1853,6 +2060,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
         }
 
+        if (OrderNumber.Length > 40 || EditableOrderItems.GroupBy(item => item.ProductId).Any(g => g.Count() > 1))
+        {
+            OrderItemEditorError = T["OrderValidationFailed"];
+            return false;
+        }
         if (EditableOrderItems.Count == 0)
         {
             OrderItemEditorError = "Додайте хоча б один товар.";
@@ -1867,7 +2079,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         string? stockError = EditableOrderItems
             .GroupBy(item => item.ProductId)
-            .Select(group => GetStockError(group.Key, group.Sum(item => item.Quantity)))
+            .Select(group => GetStockError(group.Key, group.Sum(item => (long)item.Quantity)))
             .FirstOrDefault(error => error is not null);
 
         if (stockError is not null)
@@ -1889,50 +2101,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ProductName = item.ProductName,
             Quantity = item.Quantity,
             UnitPrice = item.UnitPrice,
+            CurrencyCode = item.CurrencyCode,
             LineTotal = item.LineTotal
         };
     }
 
     private bool HasAvailableStock(int productId, int quantityToAdd, out string? error)
     {
-        int requestedQuantity = EditableOrderItems
+        long requestedQuantity = EditableOrderItems
             .Where(item => item.ProductId == productId)
-            .Sum(item => item.Quantity) + quantityToAdd;
+            .Sum(item => (long)item.Quantity) + quantityToAdd;
 
         error = GetStockError(productId, requestedQuantity);
         return error is null;
     }
 
-    private string? GetStockError(int productId, int requestedQuantity)
+    private string? GetStockError(int productId, long requestedQuantity)
     {
         ProductListItem? product = Products.FirstOrDefault(item => item.Id == productId);
-        return product is not null && requestedQuantity > product.Quantity
+        if (product is null || !product.IsActive) return T["ProductUnavailable"];
+        return requestedQuantity > product.Quantity
             ? $"Недостатньо товару '{product.Name}'. Доступно: {product.Quantity}."
             : null;
     }
 
+    private async Task LoadDashboardSummaryAsync(int session)
+    {
+        try
+        {
+            ReportSummary summary = await _apiClient.GetOrdersReportAsync();
+            if (session == _sessionVersion && CanViewReports) Summary = summary;
+        }
+        catch (Exception)
+        {
+            // List-based totals remain useful while report endpoints are unavailable.
+            // The top-product metric is explicitly marked unavailable in this fallback.
+        }
+    }
+
     private static ReportSummary BuildReportSummary(
         IEnumerable<OrderListItem> orders,
-        IEnumerable<ProductListItem> products,
-        IEnumerable<OrderDetail> orderDetails)
+        IEnumerable<ProductListItem> products)
     {
         List<OrderListItem> orderList = orders.ToList();
-        ProductListItem? topProduct = null;
-        int topProductQuantity = 0;
-
-        var topProductGroup = orderDetails
-            .SelectMany(order => order.Items)
-            .GroupBy(item => item.ProductName)
-            .Select(group => new { ProductName = group.Key, Quantity = group.Sum(item => item.Quantity) })
-            .OrderByDescending(item => item.Quantity)
-            .FirstOrDefault();
-
-        if (topProductGroup is not null)
-        {
-            topProduct = products.FirstOrDefault(product => product.Name == topProductGroup.ProductName);
-            topProductQuantity = topProductGroup.Quantity;
-        }
-
         return new ReportSummary
         {
             TotalOrders = orderList.Count,
@@ -1944,8 +2155,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             TotalAmount = orderList.Sum(order => order.Total),
             AverageOrderAmount = orderList.Count == 0 ? 0 : orderList.Average(order => order.Total),
             LowStockProducts = products.Count(IsLowStockProduct),
-            TopProductName = topProduct?.Name ?? topProductGroup?.ProductName ?? "-",
-            TopProductQuantity = topProductQuantity
+            HasProductAnalytics = orderList.Count == 0
         };
     }
 
@@ -1982,12 +2192,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RefreshCustomersFromOrders(IEnumerable<OrderListItem> orders)
     {
-        Dictionary<int, CustomerListItem> customers = LocalCatalog.CreateCustomers()
-            .ToDictionary(customer => customer.Id);
+        Dictionary<int, CustomerListItem> customers = IsMockMode
+            ? LocalCatalog.CreateCustomers().ToDictionary(customer => customer.Id)
+            : new();
 
         foreach (OrderListItem order in orders)
         {
-            if (order.CustomerId <= 0 || customers.ContainsKey(order.CustomerId))
+            if (order.CustomerId <= 0)
             {
                 continue;
             }
@@ -2022,29 +2233,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ApplyOrderFilters()
     {
-        IEnumerable<OrderListItem> filteredOrders = _allOrders;
-
-        if (!string.IsNullOrWhiteSpace(OrderSearchText))
-        {
-            string query = OrderSearchText.Trim();
-            filteredOrders = filteredOrders.Where(order =>
-                order.Number.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || order.Customer.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || order.Status.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || order.StatusText.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || order.TotalText.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || order.CreatedAtText.Contains(query, StringComparison.OrdinalIgnoreCase));
-        }
-
-        string? statusCode = OrderStatusNames.ToCode(OrderStatusFilter);
-        if (statusCode is not null)
-        {
-            filteredOrders = filteredOrders.Where(order => order.Status == statusCode);
-        }
-
-        List<OrderListItem> visibleOrders = filteredOrders.ToList();
+        List<OrderListItem> visibleOrders = FilterOrders(OrderSearchText, OrderStatusFilter).ToList();
         ReplaceCollection(Orders, visibleOrders);
-        RefreshKanbanColumns(visibleOrders);
 
         if (SelectedOrder is not null && Orders.All(order => order.Id != SelectedOrder.Id))
         {
@@ -2054,11 +2244,48 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(OrderFilterSummaryText));
     }
 
+    private void ApplyKanbanFilters()
+    {
+        RefreshKanbanColumns(FilterOrders(KanbanSearchText, KanbanStatusFilter));
+    }
+
+    private IEnumerable<OrderListItem> FilterOrders(string searchText, string statusFilter)
+    {
+        IEnumerable<OrderListItem> filteredOrders = _allOrders;
+
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            string query = searchText.Trim();
+            filteredOrders = filteredOrders.Where(order =>
+                order.Number.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.Customer.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.Status.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.StatusText.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.TotalText.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || order.CreatedAtText.Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+
+        string? statusCode = OrderStatusNames.ToCode(statusFilter);
+        if (statusCode is not null)
+        {
+            filteredOrders = filteredOrders.Where(order => order.Status == statusCode);
+        }
+
+        return filteredOrders;
+    }
+
     private void ClearOrderFilters()
     {
         OrderSearchText = string.Empty;
         OrderStatusFilter = T["All"];
         ApplyOrderFilters();
+    }
+
+    private void ClearKanbanFilters()
+    {
+        KanbanSearchText = string.Empty;
+        KanbanStatusFilter = T["All"];
+        ApplyKanbanFilters();
     }
 
     private void RefreshKanbanColumns(IEnumerable<OrderListItem> orders)
@@ -2205,13 +2432,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ProductEditorTitle));
     }
 
+    private bool _isProductSaving;
     private async Task SaveProductAsync()
     {
-        if (!ValidateProductForm())
+        if (!CanManageProducts || _isProductSaving || !ValidateProductForm())
         {
             return;
         }
 
+        int session = _sessionVersion;
+        _isProductSaving = true;
         ProductSaveRequest request = new()
         {
             Name = ProductName.Trim(),
@@ -2227,12 +2457,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? await _apiClient.UpdateProductAsync(SelectedProduct.Id, request)
                 : await _apiClient.CreateProductAsync(request);
 
+            if (session != _sessionVersion || !IsAuthenticated) return;
+            InvalidateReports();
             ProductListItem? existingProduct = Products.FirstOrDefault(product => product.Id == savedProduct.Id);
             if (existingProduct is not null)
             {
                 existingProduct.Name = savedProduct.Name;
                 existingProduct.Category = savedProduct.Category;
                 existingProduct.Price = savedProduct.Price;
+                existingProduct.CurrencyCode = savedProduct.CurrencyCode;
                 existingProduct.Quantity = savedProduct.Quantity;
                 existingProduct.IsActive = savedProduct.IsActive;
             }
@@ -2247,6 +2480,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 existingCatalogProduct.Name = savedProduct.Name;
                 existingCatalogProduct.Category = savedProduct.Category;
                 existingCatalogProduct.Price = savedProduct.Price;
+                existingCatalogProduct.CurrencyCode = savedProduct.CurrencyCode;
                 existingCatalogProduct.Quantity = savedProduct.Quantity;
                 existingCatalogProduct.IsActive = savedProduct.IsActive;
             }
@@ -2257,13 +2491,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             SelectedProduct = Products.FirstOrDefault(product => product.Id == savedProduct.Id) ?? savedProduct;
             ApplyProductFilters();
-            Summary = BuildReportSummary(_allOrders, _allProducts, _loadedOrderDetails);
+            Summary = BuildReportSummary(_allOrders, _allProducts);
             CloseProductEditor();
+            if (CanViewReports) await LoadDashboardSummaryAsync(session);
         }
         catch (Exception exception)
         {
             ProductEditorError = $"Не вдалося зберегти товар. Деталі: {exception.Message}";
         }
+        finally { _isProductSaving = false; }
     }
 
     private bool ValidateProductForm()
@@ -2302,6 +2538,111 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsProductEditorOpen = false;
     }
 
+    private void NotifyManagement()
+    {
+        OnPropertyChanged(nameof(Users));
+        OnPropertyChanged(nameof(IsUserManagementAvailable));
+        OnPropertyChanged(nameof(IsCustomerManagementAvailable));
+        OnPropertyChanged(nameof(UsersUnavailableText));
+        OnPropertyChanged(nameof(CanManageUsers));
+        OnPropertyChanged(nameof(IsUserEditorEnabled));
+        OnPropertyChanged(nameof(OrderEditCapabilities));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private async Task LoadUsersAsync(IManagementApiClient api, int session)
+    {
+        try
+        {
+            var users = await api.GetUsersAsync();
+            if (session != _sessionVersion) return;
+            int? selectedId = SelectedUser?.Id;
+            ReplaceCollection(_serverUsers, users.Select(u => new TestUser(u.Login, u.FullName, u.Role, "")
+            { Id = u.Id, IsActive = u.IsActive, TelegramAllowed = u.TelegramAllowed, TelegramUserId = u.TelegramUserId }));
+            SelectedUser = _serverUsers.FirstOrDefault(u => u.Id == selectedId) ?? _serverUsers.FirstOrDefault();
+            _usersAvailable = true;
+            _usersLoadError = null;
+        }
+        catch (Exception ex)
+        {
+            if (session != _sessionVersion) return;
+            _serverUsers.Clear();
+            SelectedUser = null;
+            _usersAvailable = false;
+            _usersLoadError = T["UsersApiUnavailable"] + " " + ex.Message;
+        }
+        NotifyManagement();
+    }
+
+    private async Task SaveUserAsync()
+    {
+        if (!CanManageUsers || _isUserSaving) return;
+        if (IsMockMode) { SaveUserLocally(); return; }
+        if (!ValidateUserForm(out long? telegramId) || _apiClient is not IManagementApiClient api) return;
+        int session = _sessionVersion;
+        _isUserSaving = true;
+        NotifyManagement();
+        try
+        {
+            UserAccount user = _isEditingUser && SelectedUser is not null
+                ? await api.UpdateUserAsync(SelectedUser.Id, new(UserLogin.Trim(), UserFullName.Trim(), UserRoleName, UserIsActive, UserTelegramAllowed, telegramId))
+                : await api.CreateUserAsync(new(UserLogin.Trim(), UserFullName.Trim(), UserRoleName, UserIsActive, UserTelegramAllowed, telegramId, UserPassword));
+            if (session != _sessionVersion) return;
+            CloseUserEditor();
+            if (user.Id == _currentUserId)
+            {
+                SignOut();
+                LoginError = T["AccountChangedSignIn"];
+                return;
+            }
+            await LoadUsersAsync(api, session);
+            SelectedUser = Users.FirstOrDefault(u => u.Id == user.Id);
+        }
+        catch (Exception ex) { if (session == _sessionVersion) UserEditorError = ex.Message; }
+        finally { _isUserSaving = false; NotifyManagement(); }
+    }
+
+    private async Task ChangeUserPasswordAsync()
+    {
+        if (!CanManageUsers || !_isEditingUser || SelectedUser is null || string.IsNullOrWhiteSpace(UserPassword)) return;
+        if (IsMockMode) { SelectedUser.Password = UserPassword; UserPassword = ""; return; }
+        if (_apiClient is not IManagementApiClient api) return;
+        int session = _sessionVersion;
+        int id = SelectedUser.Id;
+        _isUserSaving = true;
+        NotifyManagement();
+        try
+        {
+            await api.ChangeUserPasswordAsync(id, UserPassword);
+            if (session != _sessionVersion) return;
+            UserPassword = "";
+            if (id == _currentUserId) { SignOut(); LoginError = T["AccountChangedSignIn"]; }
+        }
+        catch (Exception ex) { if (session == _sessionVersion) UserEditorError = ex.Message; }
+        finally { _isUserSaving = false; NotifyManagement(); }
+    }
+
+    public void OpenCustomerEditor(bool edit)
+    {
+        if (!IsCustomerManagementAvailable || _apiClient is not IManagementApiClient api || (edit && SelectedOrderCustomer is null)) return;
+        int session = _sessionVersion;
+        int? id = edit ? SelectedOrderCustomer!.Id : null;
+        CustomerEditorWindow window = new(async request =>
+        {
+            var saved = await api.SaveCustomerAsync(id, request);
+            if (session != _sessionVersion) throw new InvalidOperationException(T["SessionExpired"]);
+            var old = Customers.FirstOrDefault(c => c.Id == saved.Id);
+            if (old is not null) Customers.Remove(old);
+            Customers.Add(saved);
+            SelectedOrderCustomer = saved;
+            return saved;
+        }, edit ? SelectedOrderCustomer : null)
+        {
+            Owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)
+        };
+        window.ShowDialog();
+    }
+
     private void BeginAddUser()
     {
         _isEditingUser = false;
@@ -2314,6 +2655,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         UserTelegramUserId = string.Empty;
         UserEditorError = null;
         IsUserEditorOpen = true;
+        OnPropertyChanged(nameof(IsEditingUser));
         OnPropertyChanged(nameof(UserEditorTitle));
     }
 
@@ -2329,17 +2671,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         UserLogin = SelectedUser.Login;
         UserFullName = SelectedUser.FullName;
         UserRoleName = SelectedUser.RoleName;
-        UserPassword = SelectedUser.Password;
+        UserPassword = IsMockMode ? SelectedUser.Password : string.Empty;
         UserIsActive = SelectedUser.IsActive;
         UserTelegramAllowed = SelectedUser.TelegramAllowed;
         UserTelegramUserId = SelectedUser.TelegramUserId?.ToString() ?? string.Empty;
         UserEditorError = null;
         IsUserEditorOpen = true;
+        OnPropertyChanged(nameof(IsEditingUser));
         OnPropertyChanged(nameof(UserEditorTitle));
     }
 
-    private void SaveUser()
+    private void SaveUserLocally()
     {
+        if (!CanManageUsers) return;
         if (!ValidateUserForm(out long? telegramUserId))
         {
             return;
@@ -2387,7 +2731,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        if (TestUsers.Any(user => user != SelectedUser && string.Equals(user.Login, UserLogin.Trim(), StringComparison.OrdinalIgnoreCase)))
+        if (Users.Any(user => (!_isEditingUser || user != SelectedUser) && string.Equals(user.Login, UserLogin.Trim(), StringComparison.OrdinalIgnoreCase)))
         {
             UserEditorError = "Користувач із таким логіном уже існує.";
             return false;
@@ -2405,7 +2749,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(UserPassword))
+        if ((!_isEditingUser || IsMockMode) && string.IsNullOrWhiteSpace(UserPassword))
         {
             UserEditorError = "Вкажіть пароль користувача.";
             return false;
@@ -2425,7 +2769,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return false;
             }
 
-            if (TestUsers.Any(user => user != SelectedUser && user.TelegramUserId == parsedTelegramUserId))
+            if (Users.Any(user => (!_isEditingUser || user != SelectedUser) && user.TelegramUserId == parsedTelegramUserId))
             {
                 UserEditorError = "Користувач із таким Telegram User ID уже існує.";
                 return false;
@@ -2442,6 +2786,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         UserEditorError = null;
         IsUserEditorOpen = false;
+        UserPassword = string.Empty;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

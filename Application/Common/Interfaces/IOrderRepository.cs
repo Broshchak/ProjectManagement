@@ -5,6 +5,7 @@ namespace Application.Common.Interfaces
 {
     public interface IOrderRepository
     {
+        Task<bool> CustomerExistsAsync(int customerId, CancellationToken ct = default);
         Task<OrderEntity?> GetByIdAsync(int id, CancellationToken ct = default);
         Task<OrderEntity?> GetByNumberAsync(string orderNumber, CancellationToken ct = default);
         Task<IEnumerable<OrderSummaryDto>> GetSummariesAsync(CancellationToken ct = default);

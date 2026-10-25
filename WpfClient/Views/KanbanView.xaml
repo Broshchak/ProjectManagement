@@ -22,20 +22,20 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBox Grid.Column="0"
-                         Text="{Binding OrderSearchText, UpdateSourceTrigger=PropertyChanged}"
+                         Text="{Binding KanbanSearchText, UpdateSourceTrigger=PropertyChanged}"
                          MinHeight="34"
                          Padding="8"
                          Margin="0,0,8,0"
                          ToolTip="{Binding Path=T[OrderSearchTip]}" />
                 <ComboBox Grid.Column="1"
                           ItemsSource="{Binding OrderStatusFilterOptions}"
-                          SelectedItem="{Binding OrderStatusFilter, Mode=TwoWay}"
+                          SelectedItem="{Binding KanbanStatusFilter, Mode=TwoWay}"
                           MinHeight="34"
                           Padding="8"
                           Margin="0,0,8,0" />
                 <Button Grid.Column="2"
                         Content="{Binding Path=T[Reset]}"
-                        Command="{Binding ClearOrderFiltersCommand}"
+                        Command="{Binding ClearKanbanFiltersCommand}"
                         Style="{StaticResource ActionButtonStyle}"
                         Margin="0,0,8,0" />
                 <Button Grid.Column="3"

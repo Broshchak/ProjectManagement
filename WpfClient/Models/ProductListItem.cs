@@ -5,6 +5,19 @@ namespace WpfClient.Models;
 
 public sealed class ProductListItem : INotifyPropertyChanged
 {
+    private string _currencyCode = "UAH";
+    public string CurrencyCode
+    {
+        get => _currencyCode;
+        set
+        {
+            if (_currencyCode == value) return;
+            _currencyCode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PriceText));
+            OnPropertyChanged(nameof(DisplayName));
+        }
+    }
     private int _id;
     private string _name = string.Empty;
     private string _category = string.Empty;
@@ -122,7 +135,7 @@ public sealed class ProductListItem : INotifyPropertyChanged
         }
     }
 
-    public string PriceText => $"{Price:N2} грн";
+    public string PriceText => $"{Price:N2} {CurrencyCode}";
 
     public string ActiveText => IsActive
         ? LocalizationManager.Instance["Active"]

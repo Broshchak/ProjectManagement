@@ -19,6 +19,8 @@ namespace Application.Services
 
         public async Task<OrderDetailDto> CreateOrderAsync(CreateOrderDto dto, int currentUserId, CancellationToken ct = default)
         {
+            if (!await orderRepository.CustomerExistsAsync(dto.CustomerId, ct))
+                throw new ValidationException("Customer was not found.");
             if (dto.Items == null || dto.Items.Count == 0)
             {
                 throw new ValidationException("An order must contain at least one item.");

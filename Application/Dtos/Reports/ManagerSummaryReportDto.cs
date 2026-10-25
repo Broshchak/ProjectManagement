@@ -1,5 +1,5 @@
 namespace Application.Dtos.Reports;
 
 public sealed record ManagerSummaryReportDto(
-    DateTime CreatedAt,
+    DateTime GeneratedAt,
     string Text);

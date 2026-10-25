@@ -140,7 +140,10 @@
                             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedOrderDetails.CreatedAtText}" Margin="0,0,0,8" />
 
                             <TextBlock Grid.Row="2" Text="{Binding Path=T[Customer]}" Foreground="#687789" Margin="0,0,12,8" />
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedOrderDetails.Customer}" Margin="0,0,0,8" />
+                            <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding SelectedOrderDetails.Customer}" />
+                                <TextBlock Text="{Binding SelectedOrderDetails.CustomerContactText}" TextWrapping="Wrap" Foreground="#687789" />
+                            </StackPanel>
 
                             <TextBlock Grid.Row="3" Text="{Binding Path=T[Status]}" Foreground="#687789" Margin="0,0,12,8" />
                             <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedOrderDetails.StatusText}" Margin="0,0,0,8" />

@@ -53,7 +53,8 @@ public class ReportsController(AppDbContext context) : ControllerBase
             reportDate,
             orders.Count,
             orders.Sum(order => order.TotalAmount),
-            orders);
+            orders.Select(row => new OrderReportItemDto(row.Id, row.OrderNumber, row.CustomerFullName,
+                row.StatusCode, row.StatusName, row.TotalAmount, row.CreatedAt)).ToList());
     }
 
     [HttpGet("products")]
@@ -63,7 +64,8 @@ public class ReportsController(AppDbContext context) : ControllerBase
             .OrderByDescending(item => item.TotalAmount)
             .ToListAsync(ct);
 
-        return products;
+        return products.Select(row => new ProductSalesReportItemDto(row.ProductId, row.ProductName,
+            row.CategoryName, row.Quantity, row.TotalAmount)).ToList();
     }
 
     [HttpGet("low-stock")]
@@ -74,7 +76,8 @@ public class ReportsController(AppDbContext context) : ControllerBase
             .ThenBy(item => item.ProductName)
             .ToListAsync(ct);
 
-        return products;
+        return products.Select(row => new LowStockProductReportItemDto(row.ProductId, row.ProductName,
+            row.CategoryName, row.Quantity, row.Price)).ToList();
     }
 
     [HttpGet("manager-summary")]
@@ -97,24 +100,21 @@ public class ReportsController(AppDbContext context) : ControllerBase
         return new ManagerSummaryReportDto(DateTime.Now, text);
     }
 
-    private IQueryable<OrderReportItemDto> GetOrdersQuery()
+    private IQueryable<OrderReportRow> GetOrdersQuery()
     {
         return from o in context.Set<OrderEntity>().AsNoTracking()
             join c in context.Set<CustomerEntity>().AsNoTracking() on o.CustomerId equals c.Id
             join s in context.Set<OrderStatusEntity>().AsNoTracking() on o.StatusId equals s.Id
-            select new OrderReportItemDto(
-                o.Id,
-                o.OrderNumber,
-                c.FullName,
-                s.Code,
-                s.Name,
-                context.Set<OrderItemEntity>()
-                    .Where(item => item.OrderId == o.Id)
-                    .Sum(item => (decimal?)(item.Quantity * item.UnitPrice)) ?? 0m,
-                o.CreatedAt);
+            select new OrderReportRow
+            {
+                Id = o.Id, OrderNumber = o.OrderNumber, CustomerFullName = c.FullName,
+                StatusCode = s.Code, StatusName = s.Name, CreatedAt = o.CreatedAt,
+                TotalAmount = context.Set<OrderItemEntity>().Where(item => item.OrderId == o.Id)
+                    .Sum(item => (decimal?)(item.Quantity * item.UnitPrice)) ?? 0m
+            };
     }
 
-    private IQueryable<ProductSalesReportItemDto> GetProductSalesQuery(DateTime? from = null, DateTime? to = null)
+    private IQueryable<ProductSalesRow> GetProductSalesQuery(DateTime? from = null, DateTime? to = null)
     {
         DateTime? dateFrom = from.HasValue ? ToUtcDate(from.Value) : null;
         DateTime? dateTo = to.HasValue ? ToUtcDate(to.Value).AddDays(1) : null;
@@ -145,15 +145,15 @@ public class ReportsController(AppDbContext context) : ControllerBase
 
         return from row in query
             group row by new { row.Id, row.Name, row.CategoryName } into grouped
-            select new ProductSalesReportItemDto(
-                grouped.Key.Id,
-                grouped.Key.Name,
-                grouped.Key.CategoryName,
-                grouped.Sum(item => item.Quantity),
-                grouped.Sum(item => item.Quantity * item.UnitPrice));
+            select new ProductSalesRow
+            {
+                ProductId = grouped.Key.Id, ProductName = grouped.Key.Name,
+                CategoryName = grouped.Key.CategoryName, Quantity = grouped.Sum(item => item.Quantity),
+                TotalAmount = grouped.Sum(item => item.Quantity * item.UnitPrice)
+            };
     }
 
-    private static IQueryable<OrderReportItemDto> ApplyDateRange(IQueryable<OrderReportItemDto> query, DateTime? from, DateTime? to)
+    private static IQueryable<OrderReportRow> ApplyDateRange(IQueryable<OrderReportRow> query, DateTime? from, DateTime? to)
     {
         if (from.HasValue)
         {
@@ -195,7 +195,7 @@ public class ReportsController(AppDbContext context) : ControllerBase
         return "Період: весь час";
     }
 
-    private IQueryable<LowStockProductReportItemDto> GetLowStockQuery()
+    private IQueryable<LowStockRow> GetLowStockQuery()
     {
         return from product in context.Set<ProductEntity>().AsNoTracking()
             join category in context.Set<ProductCategoryEntity>().AsNoTracking() on product.CategoryId equals category.Id
@@ -203,11 +203,37 @@ public class ReportsController(AppDbContext context) : ControllerBase
             join price in context.Set<ProductPriceEntity>().AsNoTracking() on product.Id equals price.ProductId into prices
             from productPrice in prices.DefaultIfEmpty()
             where product.IsActive && stock.Quantity <= LowStockLimit
-            select new LowStockProductReportItemDto(
-                product.Id,
-                product.Name,
-                category.Name,
-                stock.Quantity,
-                productPrice != null ? productPrice.Price : 0m);
+            select new LowStockRow
+            {
+                ProductId = product.Id, ProductName = product.Name, CategoryName = category.Name,
+                Quantity = stock.Quantity, Price = productPrice != null ? productPrice.Price : 0m
+            };
+    }
+
+    private sealed class OrderReportRow
+    {
+        public int Id { get; init; }
+        public string OrderNumber { get; init; } = "";
+        public string CustomerFullName { get; init; } = "";
+        public string StatusCode { get; init; } = "";
+        public string StatusName { get; init; } = "";
+        public decimal TotalAmount { get; init; }
+        public DateTime CreatedAt { get; init; }
+    }
+    private sealed class ProductSalesRow
+    {
+        public int ProductId { get; init; }
+        public string ProductName { get; init; } = "";
+        public string CategoryName { get; init; } = "";
+        public int Quantity { get; init; }
+        public decimal TotalAmount { get; init; }
+    }
+    private sealed class LowStockRow
+    {
+        public int ProductId { get; init; }
+        public string ProductName { get; init; } = "";
+        public string CategoryName { get; init; } = "";
+        public int Quantity { get; init; }
+        public decimal Price { get; init; }
     }
 }

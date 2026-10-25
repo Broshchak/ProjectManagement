@@ -5,19 +5,21 @@ namespace WpfClient.Services;
 
 public sealed class ApiClientSettings
 {
-    public string BaseUrl { get; set; } = "https://localhost:7001";
+    public string BaseUrl { get; set; } = "https://project-management3.runasp.net/";
 
-    public bool UseMockData { get; set; } = true;
+    public bool UseMockData { get; set; }
+
+    public string? ConfigurationError { get; private set; }
 
     public int TimeoutSeconds { get; set; } = 10;
 
-    public static ApiClientSettings Load()
+    public static ApiClientSettings Load(string? path = null)
     {
-        string settingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        string settingsPath = path ?? Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
         if (!File.Exists(settingsPath))
         {
-            return new ApiClientSettings();
+            return new ApiClientSettings { ConfigurationError = "Не знайдено appsettings.json. Відновіть налаштування API." };
         }
 
         try
@@ -27,7 +29,7 @@ public sealed class ApiClientSettings
 
             if (!document.RootElement.TryGetProperty("ApiClient", out JsonElement apiClient))
             {
-                return new ApiClientSettings();
+                throw new InvalidDataException("Відсутній розділ ApiClient.");
             }
 
             ApiClientSettings settings = new();
@@ -47,11 +49,16 @@ public sealed class ApiClientSettings
                 settings.TimeoutSeconds = timeoutSeconds.GetInt32();
             }
 
+            if (!Uri.TryCreate(settings.BaseUrl, UriKind.Absolute, out Uri? uri) ||
+                (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) ||
+                settings.TimeoutSeconds is < 1 or > 300)
+                throw new InvalidDataException("Некоректна адреса API або таймаут (1–300 секунд).");
+            settings.BaseUrl = settings.BaseUrl.TrimEnd('/') + "/";
             return settings;
         }
-        catch
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or InvalidOperationException or FormatException)
         {
-            return new ApiClientSettings();
+            return new ApiClientSettings { ConfigurationError = $"Помилка appsettings.json: {exception.Message}" };
         }
     }
 }

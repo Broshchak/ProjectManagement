@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:models="clr-namespace:WpfClient.Models">
     <Grid>
+        <TextBlock Text="{Binding UsersUnavailableText}" TextWrapping="Wrap" Margin="20"
+                   Visibility="{Binding IsUserManagementAvailable, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+    <Grid Visibility="{Binding IsUserManagementAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
@@ -27,7 +30,7 @@
                             Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 </StackPanel>
 
-                <DataGrid ItemsSource="{Binding TestUsers}"
+                <DataGrid ItemsSource="{Binding Users}"
                           SelectedItem="{Binding SelectedUser, Mode=TwoWay}"
                           AutoGenerateColumns="False"
                           CanUserAddRows="False"
@@ -98,7 +101,7 @@
                 Width="340"
                 Margin="16,0,0,0"
                 Visibility="{Binding IsUserEditorOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" IsEnabled="{Binding IsUserEditorEnabled}">
                 <StackPanel>
                     <TextBlock Text="{Binding UserEditorTitle}"
                                FontSize="18"
@@ -126,10 +129,13 @@
                               Margin="0,0,0,12" />
 
                     <TextBlock Text="{Binding Path=T[Password]}" Foreground="#3B4754" FontWeight="SemiBold" Margin="0,0,0,6" />
-                    <TextBox Text="{Binding UserPassword, UpdateSourceTrigger=PropertyChanged}"
-                             MinHeight="34"
-                             Padding="8"
-                             Margin="0,0,0,12" />
+                    <PasswordBox x:Name="UserPasswordInput" PasswordChanged="UserPasswordInput_PasswordChanged"
+                                 MinHeight="34" Padding="8" Margin="0,0,0,8" />
+                    <TextBlock Text="{Binding Path=T[PasswordSeparate]}" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Visibility="{Binding IsEditingUser, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Button Content="{Binding Path=T[ChangePassword]}" Command="{Binding ChangeUserPasswordCommand}"
+                            Style="{StaticResource ActionButtonStyle}" Margin="0,0,0,12"
+                            Visibility="{Binding IsEditingUser, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                     <CheckBox Content="{Binding Path=T[AccountActive]}"
                               IsChecked="{Binding UserIsActive}"
@@ -169,5 +175,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Border>
+    </Grid>
     </Grid>
 </UserControl>

@@ -63,7 +63,7 @@
     </Window.Resources>
 
     <Grid>
-        <views:LoginView Visibility="{Binding IsAuthenticated, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+        <views:LoginView Visibility="{Binding IsAuthenticated, Converter={StaticResource InverseBooleanToVisibilityConverter}}" Loaded="LoginView_Loaded" />
 
         <Grid Visibility="{Binding IsAuthenticated, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.ColumnDefinitions>

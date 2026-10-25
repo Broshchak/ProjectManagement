@@ -9,7 +9,7 @@
         MinHeight="500"
         Background="#F5F7FA"
         WindowStartupLocation="CenterOwner">
-    <Grid Margin="20">
+    <Grid Margin="20" IsEnabled="{Binding IsOrderEditorEnabled}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -115,9 +115,14 @@
                                             Binding="{Binding ProductName}"
                                             IsReadOnly="True"
                                             Width="*" />
-                        <DataGridTextColumn Header="{Binding Path=[Quantity], Source={x:Static models:LocalizationManager.Instance}}"
-                                            Binding="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                            Width="120" />
+                        <DataGridTemplateColumn Header="{Binding Path=[Quantity], Source={x:Static models:LocalizationManager.Instance}}" Width="120">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBox Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True}"
+                                             IsReadOnly="{Binding IsQuantityReadOnly}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTextColumn Header="{Binding Path=[Price], Source={x:Static models:LocalizationManager.Instance}}"
                                             Binding="{Binding UnitPriceText}"
                                             IsReadOnly="True"
@@ -133,7 +138,8 @@
 
         <StackPanel Grid.Row="3" Margin="0,14,0,0">
             <TextBlock Text="{Binding Path=T[Comment]}" Foreground="#687789" />
-            <TextBox Text="{Binding OrderComment, UpdateSourceTrigger=PropertyChanged}"
+            <TextBlock Text="{Binding OrderEditCapabilities}" TextWrapping="Wrap" Foreground="#687789" Margin="0,0,0,8" />
+            <TextBox IsReadOnly="{Binding IsOrderCommentReadOnly}" Text="{Binding OrderComment, UpdateSourceTrigger=PropertyChanged}"
                      MinHeight="70"
                      TextWrapping="Wrap"
                      AcceptsReturn="True"

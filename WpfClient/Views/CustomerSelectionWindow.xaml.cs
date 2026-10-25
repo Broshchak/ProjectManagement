@@ -3,11 +3,14 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
 using WpfClient.Models;
+using WpfClient.ViewModels;
 
 namespace WpfClient.Views;
 
 public partial class CustomerSelectionWindow : Window
 {
+    private void AddCustomer_Click(object sender, RoutedEventArgs e) => (DataContext as MainViewModel)?.OpenCustomerEditor(false);
+    private void EditCustomer_Click(object sender, RoutedEventArgs e) => (DataContext as MainViewModel)?.OpenCustomerEditor(true);
     public CustomerSelectionWindow()
     {
         InitializeComponent();

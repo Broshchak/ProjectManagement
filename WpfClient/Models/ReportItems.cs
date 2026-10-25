@@ -16,7 +16,7 @@ public sealed class TodayOrderReportItem
 
     public DateTime CreatedAt { get; set; }
 
-    public string StatusText => string.IsNullOrWhiteSpace(StatusName) ? StatusCode : StatusName;
+    public string StatusText => OrderStatusNames.ToText(StatusCode);
 
     public string TotalAmountText => $"{TotalAmount:N2} грн";
 

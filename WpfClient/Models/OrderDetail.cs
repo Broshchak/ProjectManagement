@@ -5,6 +5,7 @@ namespace WpfClient.Models;
 
 public sealed class OrderDetail
 {
+    public string Version { get; set; } = "";
     public int Id { get; set; }
 
     public string Number { get; set; } = string.Empty;
@@ -15,11 +16,23 @@ public sealed class OrderDetail
 
     public int CustomerId { get; set; }
 
+    public bool IsStatusFinal { get; set; }
+
+    public string CurrencyCode { get; set; } = "UAH";
+
     public string Status { get; set; } = string.Empty;
 
     public string StatusText => OrderStatusNames.ToText(Status);
 
     public decimal Total { get; set; }
+
+    public string? CustomerPhone { get; set; }
+    public string? CustomerEmail { get; set; }
+    public string? CustomerAddress { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public int CreatedByUserId { get; set; }
+    public string CustomerContactText => string.Join(Environment.NewLine,
+        new[] { CustomerPhone, CustomerEmail, CustomerAddress }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
     public string? Comment { get; set; }
 
@@ -29,12 +42,14 @@ public sealed class OrderDetail
 
     public string CreatedAtText => CreatedAt.ToString("dd.MM.yyyy");
 
-    public string TotalText => $"{Total:N2} грн";
+    public string TotalText => $"{Total:N2} {CurrencyCode}";
 }
 
 public sealed class OrderDetailItem : INotifyPropertyChanged
 {
     private int _quantity;
+    public bool IsQuantityReadOnly { get; set; }
+    public string CurrencyCode { get; set; } = "UAH";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -65,9 +80,9 @@ public sealed class OrderDetailItem : INotifyPropertyChanged
 
     public decimal LineTotal { get; set; }
 
-    public string UnitPriceText => $"{UnitPrice:N2} грн";
+    public string UnitPriceText => $"{UnitPrice:N2} {CurrencyCode}";
 
-    public string LineTotalText => $"{LineTotal:N2} грн";
+    public string LineTotalText => $"{LineTotal:N2} {CurrencyCode}";
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

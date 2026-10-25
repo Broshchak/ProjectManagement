@@ -5,6 +5,7 @@ namespace WpfClient.ViewModels;
 
 public sealed class TestUser : INotifyPropertyChanged
 {
+    public int Id { get; set; }
     private string _login;
     private string _fullName;
     private string _roleName;

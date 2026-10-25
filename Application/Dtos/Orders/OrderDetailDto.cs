@@ -19,5 +19,8 @@
         DateTime UpdatedAt,
         IReadOnlyCollection<OrderItemDto> Items,
         IReadOnlyCollection<OrderStatusHistoryDto> StatusHistory
-    );
+    )
+    {
+        public string Version => OrderVersion.Calculate(this);
+    }
 }

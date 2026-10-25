@@ -39,7 +39,7 @@
                     </ComboBox>
                 </StackPanel>
 
-                <Image Source="pack://application:,,,/Assets/app-icon.png"
+                <Image Source="pack://application:,,,/WpfClient;component/Assets/app-icon.png"
                        Width="72"
                        Height="72"
                        HorizontalAlignment="Left"
@@ -49,7 +49,7 @@
                            FontSize="26"
                            FontWeight="SemiBold"
                            Foreground="#17202B" />
-                <TextBlock Text="{Binding Path=T[LoginSubtitle]}"
+                <TextBlock Text="{Binding LoginSubtitleText}"
                            TextWrapping="Wrap"
                            Foreground="#687789"
                            Margin="0,6,0,24" />
@@ -58,7 +58,10 @@
                            Foreground="#3B4754"
                            FontWeight="SemiBold"
                            Margin="0,0,0,6" />
-                <ComboBox ItemsSource="{Binding TestUsers}"
+                <TextBox Text="{Binding LoginName, UpdateSourceTrigger=PropertyChanged}"
+                         MinHeight="36" Margin="0,0,0,16"
+                         Visibility="{Binding IsRealMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <ComboBox Visibility="{Binding IsMockMode, Converter={StaticResource BooleanToVisibilityConverter}}" ItemsSource="{Binding TestUsers}"
                           SelectedItem="{Binding SelectedLoginUser, Mode=TwoWay}"
                           DisplayMemberPath="DisplayName"
                           SelectionChanged="UserSelection_Changed"
@@ -99,9 +102,10 @@
 
                 <Button Content="{Binding Path=T[SignIn]}"
                         Click="SignIn_Click"
+                        IsEnabled="{Binding CanSignIn}"
                         Style="{StaticResource ActionButtonStyle}" />
 
-                <TextBlock Text="{Binding Path=T[LoginHelp]}"
+                <TextBlock Text="{Binding LoginHelpText}"
                            Foreground="#687789"
                            TextWrapping="Wrap"
                            FontSize="12"

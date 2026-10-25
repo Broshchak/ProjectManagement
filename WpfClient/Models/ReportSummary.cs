@@ -2,6 +2,7 @@ namespace WpfClient.Models;
 
 public sealed class ReportSummary
 {
+    public bool HasProductAnalytics { get; set; } = true;
     public int TotalOrders { get; set; }
 
     public int NewOrders { get; set; }
@@ -34,7 +35,9 @@ public sealed class ReportSummary
         ? string.Empty
         : LocalizationManager.Instance.Format("NeedsAttention", LowStockProducts);
 
-    public string TopProductText => TopProductQuantity == 0
+    public string TopProductText => !HasProductAnalytics
+        ? LocalizationManager.Instance["AnalyticsUnavailable"]
+        : TopProductQuantity == 0
         ? LocalizationManager.Instance["NoData"]
-        : $"{TopProductName} ({TopProductQuantity} од.)";
+        : $"{TopProductName} ({TopProductQuantity})";
 }

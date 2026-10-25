@@ -2,7 +2,7 @@ using WpfClient.Models;
 
 namespace WpfClient.Services;
 
-public sealed class MockOrdersApiClient : IOrdersApiClient
+public sealed class MockOrdersApiClient : IOrdersApiClient, IOrderEditingApiClient
 {
     private readonly List<OrderListItem> _orders =
     [
@@ -218,6 +218,30 @@ public sealed class MockOrdersApiClient : IOrdersApiClient
 
         order.Items.Remove(item);
         RecalculateOrderTotal(order);
+    }
+
+    public Task<OrderDetail> UpdateOrderAsync(int id, UpdateOrderRequest request, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var order = _orderDetails.GetValueOrDefault(id) ?? throw new InvalidOperationException("Order was not found.");
+        if (order.Version != request.ExpectedVersion) throw new InvalidOperationException("Order has changed.");
+        if (order.Status is not ("NewOrder" or "Registered") || request.Items.Count == 0 ||
+            request.Items.Any(i => i.Quantity <= 0) || request.Items.GroupBy(i => i.ProductId).Any(g => g.Count() > 1))
+            throw new InvalidOperationException("Invalid order draft.");
+        var old = order.Items.ToDictionary(i => i.ProductId);
+        order.Items = request.Items.Select(i =>
+        {
+            var item = old.TryGetValue(i.ProductId, out var original)
+                ? new OrderDetailItem { Id = original.Id, ProductId = original.ProductId, ProductName = original.ProductName, UnitPrice = original.UnitPrice }
+                : CreateMockItem(new() { ProductId = i.ProductId, Quantity = i.Quantity });
+            item.Quantity = i.Quantity;
+            item.LineTotal = i.Quantity * item.UnitPrice;
+            return item;
+        }).ToList();
+        order.Comment = request.Comment;
+        order.Version = Guid.NewGuid().ToString("N");
+        RecalculateOrderTotal(order);
+        return Task.FromResult(order);
     }
 
     public async Task ReplaceOrderItemAsync(int orderId, int itemId, CreateOrderItemRequest request, CancellationToken cancellationToken = default)

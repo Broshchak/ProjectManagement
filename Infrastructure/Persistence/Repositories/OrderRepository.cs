@@ -7,6 +7,8 @@ namespace Infrastructure.Persistence.Repositories
 {
     public class OrderRepository(AppDbContext context) : IOrderRepository
     {
+        public Task<bool> CustomerExistsAsync(int customerId, CancellationToken ct = default) =>
+            context.Set<CustomerEntity>().AnyAsync(c => c.Id == customerId, ct);
         public async Task<OrderEntity?> GetByIdAsync(int id, CancellationToken ct = default)
         {
             return await context.Set<OrderEntity>()

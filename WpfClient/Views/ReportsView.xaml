@@ -1,6 +1,44 @@
 <UserControl x:Class="WpfClient.Views.ReportsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="clr-namespace:WpfClient.Models"
+             xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
+    <UserControl.Resources>
+        <Style TargetType="{x:Type primitives:DatePickerTextBox}">
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type primitives:DatePickerTextBox}">
+                        <Grid Background="{TemplateBinding Background}"
+                              SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center"
+                                          Focusable="False" />
+                            <ContentControl x:Name="PART_Watermark"
+                                            Margin="{TemplateBinding Padding}"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Content="{TemplateBinding Tag}"
+                                            Focusable="False"
+                                            IsHitTestVisible="False"
+                                            Foreground="#687789"
+                                            Visibility="Collapsed" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Text" Value="">
+                                <Setter TargetName="PART_Watermark" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -19,18 +57,30 @@
                                TextWrapping="Wrap"
                                Foreground="#687789"
                                Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding ReportsStateText}" TextWrapping="Wrap" Margin="0,8,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="#687789" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasReportsError}" Value="True">
+                                        <Setter Property="Foreground" Value="#9B1C1C" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Від:" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,6,0" />
-                    <DatePicker SelectedDate="{Binding ReportDateFrom}" Width="130" Margin="0,0,10,0" />
-                    <TextBlock Text="До:" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,6,0" />
-                    <DatePicker SelectedDate="{Binding ReportDateTo}" Width="130" Margin="0,0,12,0" />
-                    <Button Content="Оновити звіти"
+                    <TextBlock Text="{Binding Path=T[ReportFrom]}" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,6,0" />
+                    <DatePicker SelectedDate="{Binding ReportDateFrom}" Width="130" MinHeight="34" Margin="0,0,10,0" />
+                    <TextBlock Text="{Binding Path=T[ReportTo]}" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,6,0" />
+                    <DatePicker SelectedDate="{Binding ReportDateTo}" Width="130" MinHeight="34" Margin="0,0,12,0" />
+                    <Button Content="{Binding Path=T[RefreshReports]}"
                             Command="{Binding RefreshReportsCommand}"
                             Style="{StaticResource ActionButtonStyle}"
                             Visibility="{Binding CanViewReports, Converter={StaticResource BooleanToVisibilityConverter}}"
                             Margin="0,0,8,0" />
-                    <Button Content="Зберегти PDF"
+                    <Button Content="{Binding Path=T[ExportPdf]}"
                             Command="{Binding ExportReportsToPdfCommand}"
                             Style="{StaticResource ActionButtonStyle}"
                             Visibility="{Binding CanViewReports, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -38,33 +88,33 @@
             </Grid>
         </Border>
 
-        <TabControl Grid.Row="1" SelectedIndex="{Binding SelectedReportTabIndex}">
-            <TabItem Header="Зведення">
+        <TabControl Visibility="{Binding HasLoadedReports, Converter={StaticResource BooleanToVisibilityConverter}}" Grid.Row="1" SelectedIndex="{Binding SelectedReportTabIndex}">
+            <TabItem Header="{Binding Path=T[ReportSummaryTab]}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="0,14,0,0">
                         <UniformGrid Columns="4">
                             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,10,10">
                                 <StackPanel>
-                                    <TextBlock Text="Замовлень" Foreground="#687789" />
-                                    <TextBlock Text="{Binding Summary.TotalOrders}" FontSize="26" FontWeight="SemiBold" Foreground="#17202B" />
+                                    <TextBlock Text="{Binding Path=T[TotalOrders]}" Foreground="#687789" />
+                                    <TextBlock Text="{Binding ReportsSummary.TotalOrders}" FontSize="26" FontWeight="SemiBold" Foreground="#17202B" />
                                 </StackPanel>
                             </Border>
                             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,10,10">
                                 <StackPanel>
-                                    <TextBlock Text="Сума" Foreground="#687789" />
-                                    <TextBlock Text="{Binding Summary.TotalAmountText}" FontSize="22" FontWeight="SemiBold" Foreground="#17202B" />
+                                    <TextBlock Text="{Binding Path=T[TotalAmount]}" Foreground="#687789" />
+                                    <TextBlock Text="{Binding ReportsSummary.TotalAmountText}" FontSize="22" FontWeight="SemiBold" Foreground="#17202B" />
                                 </StackPanel>
                             </Border>
                             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,10,10">
                                 <StackPanel>
-                                    <TextBlock Text="Середній чек" Foreground="#687789" />
-                                    <TextBlock Text="{Binding Summary.AverageOrderAmountText}" FontSize="22" FontWeight="SemiBold" Foreground="#17202B" />
+                                    <TextBlock Text="{Binding Path=T[AverageCheck]}" Foreground="#687789" />
+                                    <TextBlock Text="{Binding ReportsSummary.AverageOrderAmountText}" FontSize="22" FontWeight="SemiBold" Foreground="#17202B" />
                                 </StackPanel>
                             </Border>
                             <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
-                                    <TextBlock Text="Низькі залишки" Foreground="#687789" />
-                                    <TextBlock Text="{Binding Summary.LowStockProducts}" FontSize="26" FontWeight="SemiBold" Foreground="#B45309" />
+                                    <TextBlock Text="{Binding Path=T[LowStockPlural]}" Foreground="#687789" />
+                                    <TextBlock Text="{Binding ReportsSummary.LowStockProducts}" FontSize="26" FontWeight="SemiBold" Foreground="#B45309" />
                                 </StackPanel>
                             </Border>
                         </UniformGrid>
@@ -76,32 +126,32 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
-                                    <TextBlock Text="Статуси замовлень" FontSize="16" FontWeight="SemiBold" Foreground="#17202B" />
+                                    <TextBlock Text="{Binding Path=T[OrderStatuses]}" FontSize="16" FontWeight="SemiBold" Foreground="#17202B" />
                                     <UniformGrid Columns="3" Margin="0,12,0,0">
                                         <StackPanel Margin="0,0,12,10">
-                                            <TextBlock Text="Нові" Foreground="#687789" />
-                                            <TextBlock Text="{Binding Summary.NewOrders}" FontSize="22" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Path=T[NewOrders]}" Foreground="#687789" />
+                                            <TextBlock Text="{Binding ReportsSummary.NewOrders}" FontSize="22" FontWeight="SemiBold" />
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,10">
-                                            <TextBlock Text="В роботі" Foreground="#687789" />
-                                            <TextBlock Text="{Binding Summary.OrdersInProgress}" FontSize="22" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Path=T[InProgress]}" Foreground="#687789" />
+                                            <TextBlock Text="{Binding ReportsSummary.OrdersInProgress}" FontSize="22" FontWeight="SemiBold" />
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,10">
-                                            <TextBlock Text="Відвантажені" Foreground="#687789" />
-                                            <TextBlock Text="{Binding Summary.ShippedOrders}" FontSize="22" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Path=T[Shipped]}" Foreground="#687789" />
+                                            <TextBlock Text="{Binding ReportsSummary.ShippedOrders}" FontSize="22" FontWeight="SemiBold" />
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,0">
-                                            <TextBlock Text="Рахунки" Foreground="#687789" />
-                                            <TextBlock Text="{Binding Summary.InvoicedOrders}" FontSize="22" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Path=T[Invoiced]}" Foreground="#687789" />
+                                            <TextBlock Text="{Binding ReportsSummary.InvoicedOrders}" FontSize="22" FontWeight="SemiBold" />
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,0">
-                                            <TextBlock Text="Скасовані" Foreground="#687789" />
-                                            <TextBlock Text="{Binding Summary.CancelledOrders}" FontSize="22" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Path=T[Cancelled]}" Foreground="#687789" />
+                                            <TextBlock Text="{Binding ReportsSummary.CancelledOrders}" FontSize="22" FontWeight="SemiBold" />
                                         </StackPanel>
                                     </UniformGrid>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="22,0,0,0">
-                                    <TextBlock Text="Звіт для керівника" FontSize="16" FontWeight="SemiBold" Foreground="#17202B" />
+                                    <TextBlock Text="{Binding Path=T[ManagerReport]}" FontSize="16" FontWeight="SemiBold" Foreground="#17202B" />
                                     <TextBlock Text="{Binding ReportPeriodText}" Foreground="#687789" Margin="0,4,0,0" />
                                     <TextBox Text="{Binding ManagerReportText, Mode=OneWay}"
                                              Margin="0,12,0,0"
@@ -117,7 +167,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="За дату">
+            <TabItem Header="{Binding Path=T[ByDateTab]}">
                 <Grid Margin="0,14,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -125,9 +175,9 @@
                     </Grid.RowDefinitions>
                     <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,0,12">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Дата:" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,8,0" />
-                            <DatePicker SelectedDate="{Binding TodayReportDate}" Width="150" Margin="0,0,12,0" />
-                            <Button Content="Показати"
+                            <TextBlock Text="{Binding Path=T[DateLabel]}" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,8,0" />
+                            <DatePicker SelectedDate="{Binding TodayReportDate}" Width="150" MinHeight="34" Margin="0,0,12,0" />
+                            <Button Content="{Binding Path=T[Show]}"
                                     Command="{Binding RefreshReportsCommand}"
                                     Style="{StaticResource ActionButtonStyle}"
                                     Margin="0,0,18,0" />
@@ -139,17 +189,17 @@
                               AutoGenerateColumns="False"
                               IsReadOnly="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Номер" Binding="{Binding OrderNumber}" Width="120" />
-                            <DataGridTextColumn Header="Клієнт" Binding="{Binding CustomerFullName}" Width="*" />
-                            <DataGridTextColumn Header="Статус" Binding="{Binding StatusText}" Width="140" />
-                            <DataGridTextColumn Header="Сума" Binding="{Binding TotalAmountText}" Width="130" />
-                            <DataGridTextColumn Header="Створено" Binding="{Binding CreatedAtText}" Width="150" />
+                            <DataGridTextColumn Header="{Binding Path=[Number], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding OrderNumber}" Width="120" />
+                            <DataGridTextColumn Header="{Binding Path=[Customer], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding CustomerFullName}" Width="*" />
+                            <DataGridTextColumn Header="{Binding Path=[Status], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding StatusText}" Width="140" />
+                            <DataGridTextColumn Header="{Binding Path=[Total], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding TotalAmountText}" Width="130" />
+                            <DataGridTextColumn Header="{Binding Path=[Created], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding CreatedAtText}" Width="150" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Товари">
+            <TabItem Header="{Binding Path=T[ProductsTab]}">
                 <Grid Margin="0,14,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -161,25 +211,25 @@
                               AutoGenerateColumns="False"
                               IsReadOnly="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Товар" Binding="{Binding ProductName}" Width="*" />
-                            <DataGridTextColumn Header="Категорія" Binding="{Binding CategoryName}" Width="180" />
-                            <DataGridTextColumn Header="Кількість" Binding="{Binding Quantity}" Width="100" />
-                            <DataGridTextColumn Header="Сума" Binding="{Binding TotalAmountText}" Width="150" />
+                            <DataGridTextColumn Header="{Binding Path=[Product], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding ProductName}" Width="*" />
+                            <DataGridTextColumn Header="{Binding Path=[Category], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding CategoryName}" Width="180" />
+                            <DataGridTextColumn Header="{Binding Path=[Quantity], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Quantity}" Width="100" />
+                            <DataGridTextColumn Header="{Binding Path=[Total], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding TotalAmountText}" Width="150" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Низькі залишки">
+            <TabItem Header="{Binding Path=T[LowStockTab]}">
                 <DataGrid ItemsSource="{Binding LowStockReport}"
                           Margin="0,14,0,0"
                           AutoGenerateColumns="False"
                           IsReadOnly="True">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Товар" Binding="{Binding ProductName}" Width="*" />
-                        <DataGridTextColumn Header="Категорія" Binding="{Binding CategoryName}" Width="180" />
-                        <DataGridTextColumn Header="Залишок" Binding="{Binding Quantity}" Width="100" />
-                        <DataGridTextColumn Header="Ціна" Binding="{Binding PriceText}" Width="150" />
+                        <DataGridTextColumn Header="{Binding Path=[Product], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding ProductName}" Width="*" />
+                        <DataGridTextColumn Header="{Binding Path=[Category], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding CategoryName}" Width="180" />
+                        <DataGridTextColumn Header="{Binding Path=[Stock], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding Quantity}" Width="100" />
+                        <DataGridTextColumn Header="{Binding Path=[Price], Source={x:Static models:LocalizationManager.Instance}}" Binding="{Binding PriceText}" Width="150" />
                     </DataGrid.Columns>
                 </DataGrid>
             </TabItem>

@@ -12,6 +12,10 @@ public sealed class OrderListItem
 
     public string Customer { get; set; } = string.Empty;
 
+    public bool IsStatusFinal { get; set; }
+
+    public string CurrencyCode { get; set; } = "UAH";
+
     public string Status { get; set; } = string.Empty;
 
     public string StatusText => OrderStatusNames.ToText(Status);
@@ -20,5 +24,5 @@ public sealed class OrderListItem
 
     public string CreatedAtText => CreatedAt.ToString("dd.MM.yyyy");
 
-    public string TotalText => $"{Total:N2} грн";
+    public string TotalText => $"{Total:N2} {CurrencyCode}";
 }
