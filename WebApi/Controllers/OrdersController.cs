@@ -3,15 +3,14 @@ using System.Security.Claims;
 using Application.Common.Interfaces;
 using Application.Dtos.Orders;
 using Microsoft.AspNetCore.Mvc;
-using Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
+using WebApi.Filters;
 
 namespace WebApi.Controllers;
 
 [Route("api/orders")]
 [ApiController]
-public class OrdersController(IOrderService orderService, OrderEditingService editing) : ControllerBase
+[ServiceErrors]
+public class OrdersController(IOrderService orderService, IOrderEditingService editing) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetOrders(CancellationToken ct = default)
@@ -37,8 +36,6 @@ public class OrdersController(IOrderService orderService, OrderEditingService ed
         }
         catch (ValidationException ex) { return BadRequest(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        { return Conflict(new { message = "Order number is already in use." }); }
     }
 
     [HttpPost("{id:int}/items")]
@@ -71,16 +68,9 @@ public class OrdersController(IOrderService orderService, OrderEditingService ed
             var order = await action();
             return order is null ? NotFound(new { message = "Order or item was not found." }) : Ok(order);
         }
-        catch (OrderConflictException ex) { return Conflict(new { message = ex.Message }); }
-        catch (Exception ex) when (IsConcurrentWrite(ex))
-        { return Conflict(new { message = "Order changed during saving. Reload it before retrying." }); }
         catch (ValidationException ex) { return BadRequest(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
-
-    private static bool IsConcurrentWrite(Exception ex) => ex is DbUpdateConcurrencyException ||
-        ex is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.UniqueViolation } ||
-        (ex.InnerException is not null && IsConcurrentWrite(ex.InnerException));
 
     private int GetCurrentUserId()
     {

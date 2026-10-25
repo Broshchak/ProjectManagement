@@ -1,7 +1,4 @@
 using Application.Common.Interfaces;
-using Domain.Entities;
-using Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,11 +10,12 @@ public static class PasswordSeeder
     public static async Task SeedUserPasswordsAsync(this IServiceProvider services, CancellationToken ct = default)
     {
         using var scope = services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var users = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
         var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
 
-        var pending = await db.Set<AppUserEntity>().Where(u => u.PasswordHash.StartsWith("CHANGE_ME")).ToListAsync(ct);
+        var pending = await users.GetWithPlaceholderPasswordsAsync(ct);
         foreach (var user in pending)
         {
             var password = config[$"Seed:Passwords:{user.Login}"];
@@ -26,6 +24,6 @@ public static class PasswordSeeder
         }
 
         if (pending.Count > 0)
-            await db.SaveChangesAsync(ct);
+            await unitOfWork.SaveChangesAsync(ct);
     }
 }

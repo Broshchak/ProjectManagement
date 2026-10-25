@@ -8,6 +8,8 @@ using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Markup;
+using System.Xml.Linq;
 using WpfClient.Views;
 using WpfClient;
 using WpfClient.Models;
@@ -22,7 +24,20 @@ internal static class Program
     [STAThread]
     private static int Main()
     {
-        new App().InitializeComponent();
+        // Load the real styles without App.StartupUri launching a login window during tests.
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var source = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "App.resources.xaml"));
+        foreach (var element in source.Descendants().Where(e => e.Name.NamespaceName == "clr-namespace:WpfClient.Converters"))
+            element.Name = XName.Get(element.Name.LocalName, "clr-namespace:WpfClient.Converters;assembly=WpfClient");
+        var resources = new XElement(presentation + "ResourceDictionary",
+            new XAttribute(XNamespace.Xmlns + "x", "http://schemas.microsoft.com/winfx/2006/xaml"),
+            new XAttribute(XNamespace.Xmlns + "converters", "clr-namespace:WpfClient.Converters;assembly=WpfClient"),
+            source.Root!.Element(presentation + "Application.Resources")!.Elements());
+        _ = new System.Windows.Application
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown,
+            Resources = (ResourceDictionary)XamlReader.Parse(resources.ToString())
+        };
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         dispatcher.BeginInvoke(async () =>
         {

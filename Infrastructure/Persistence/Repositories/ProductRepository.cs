@@ -7,6 +7,16 @@ namespace Infrastructure.Persistence.Repositories;
 
 public sealed class ProductRepository(AppDbContext context) : IProductRepository
 {
+    public async Task<IReadOnlyList<ProductAvailabilityDto>> GetAvailabilityAsync(IReadOnlyCollection<int> productIds, CancellationToken ct = default) =>
+        await (from product in context.Set<ProductEntity>().AsNoTracking()
+            where productIds.Contains(product.Id)
+            join price in context.Set<ProductPriceEntity>().AsNoTracking() on product.Id equals price.ProductId into prices
+            from price in prices.DefaultIfEmpty()
+            join stock in context.Set<ProductStockEntity>().AsNoTracking() on product.Id equals stock.ProductId into stocks
+            from stock in stocks.DefaultIfEmpty()
+            select new ProductAvailabilityDto(product.Id, product.IsActive,
+                stock == null ? null : stock.Quantity, price == null ? null : price.Price)).ToListAsync(ct);
+
     public async Task<IEnumerable<ProductListDto>> GetProductsAsync(CancellationToken ct = default)
     {
         return await QueryProducts(orderByName: true).ToListAsync(ct);

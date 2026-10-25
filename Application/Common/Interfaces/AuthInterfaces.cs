@@ -1,4 +1,6 @@
 using Application.Dtos.Auth;
+using Application.Dtos.Users;
+using Domain.Entities;
 
 namespace Application.Common.Interfaces;
 
@@ -17,6 +19,13 @@ public interface IUserRepository
 {
     Task<AuthUser?> GetByLoginAsync(string login, CancellationToken ct = default);
     Task<AuthUser?> GetByIdAsync(int id, CancellationToken ct = default);
+    Task<IReadOnlyList<UserDto>> GetAllAsync(CancellationToken ct = default);
+    Task<UserDto?> GetDetailsAsync(int id, CancellationToken ct = default);
+    Task<AppUserEntity?> FindAsync(int id, CancellationToken ct = default);
+    Task<RoleEntity?> GetRoleAsync(string code, CancellationToken ct = default);
+    Task<bool> IdentifiersInUseAsync(int? exceptUserId, string login, long? telegramUserId, CancellationToken ct = default);
+    Task AddAsync(AppUserEntity user, CancellationToken ct = default);
+    Task<IReadOnlyList<AppUserEntity>> GetWithPlaceholderPasswordsAsync(CancellationToken ct = default);
 }
 
 public interface IPasswordHasher

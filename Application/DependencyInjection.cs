@@ -1,4 +1,4 @@
-﻿using Application.Common.Interfaces;
+using Application.Common.Interfaces;
 using Application.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,6 +10,10 @@ namespace Application
         {
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<ICustomerService, CustomerService>();
+            services.AddScoped<IUserManagementService, UserManagementService>();
+            services.AddScoped<IReportService, ReportService>();
+            services.AddScoped<IOrderEditingService, OrderEditingService>();
 
             return services;
         }

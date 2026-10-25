@@ -1,11 +1,13 @@
 using Application.Common.Interfaces;
 using Application.Dtos.Products;
 using Microsoft.AspNetCore.Mvc;
+using WebApi.Filters;
 
 namespace WebApi.Controllers;
 
 [Route("api/products")]
 [ApiController]
+[ServiceErrors]
 public class ProductsController(IProductService productService) : ControllerBase
 {
     [HttpGet]

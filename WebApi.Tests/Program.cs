@@ -2,7 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Application;
+using Application.Common.Interfaces;
+using Application.Dtos.Customers;
+using Application.Dtos.Users;
+using System.ComponentModel.DataAnnotations;
 using Infrastructure;
+using Infrastructure.Security;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Npgsql;
@@ -15,6 +20,7 @@ internal static class TestRunner
     private static int failed;
     private static HttpClient http = null!;
     private static string connectionString = "";
+    private static IServiceProvider services = null!;
 
     private static async Task<int> Main()
     {
@@ -43,6 +49,7 @@ internal static class TestRunner
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = connectionString,
+                ["Seed:Passwords:admin"] = "local-admin-seed",
                 ["Jwt:Issuer"] = "local-tests", ["Jwt:Audience"] = "local-tests",
                 ["Jwt:SigningKey"] = "local-test-key-only-012345678901234567890123456789"
             });
@@ -50,6 +57,8 @@ internal static class TestRunner
             builder.Services.AddAuthorization();
             builder.Services.AddControllers().AddApplicationPart(typeof(WebApi.Controllers.OrdersController).Assembly);
             app = builder.Build();
+            services = app.Services;
+            await services.SeedUserPasswordsAsync();
             app.UseAuthorization();
             app.MapControllers();
             await app.StartAsync();
@@ -100,6 +109,69 @@ internal static class TestRunner
 
     private static async Task Run()
     {
+        await Test("startup seeds configured placeholder passwords without replacing existing hashes", async () =>
+        {
+            await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "admin", password = "local-admin-seed" }));
+            services.GetRequiredService<IConfiguration>()["Seed:Passwords:admin"] = "must-not-replace-existing-password";
+            await services.SeedUserPasswordsAsync();
+            await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "admin", password = "local-admin-seed" }));
+            await Status(await http.PostAsJsonAsync("/api/auth/login", new { login = "admin", password = "must-not-replace-existing-password" }), HttpStatusCode.Unauthorized);
+            using var scope = services.CreateScope();
+            var pending = await scope.ServiceProvider.GetRequiredService<IUserRepository>().GetWithPlaceholderPasswordsAsync();
+            Check(pending.All(u => u.Login != "admin") && pending.Any(u => u.Login == "manager"),
+                "Configured hashes or unconfigured placeholders changed unexpectedly");
+        });
+
+        await Test("unsupported or unconfigured database provider fails before connecting", () =>
+        {
+            foreach (var settings in new[]
+            {
+                new Dictionary<string, string?> { ["Database:Provider"] = "Unknown" },
+                new Dictionary<string, string?> { ["Database:Provider"] = "PostgreSQL" },
+                new Dictionary<string, string?> { ["ConnectionStrings:Default"] = " " }
+            })
+            {
+                bool rejected = false;
+                try { new ServiceCollection().AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(settings).Build()); }
+                catch (InvalidOperationException) { rejected = true; }
+                Check(rejected, "Invalid persistence configuration was silently accepted");
+            }
+            return Task.CompletedTask;
+        });
+
+        await Test("application transaction rolls back saves across customer and user services", async () =>
+        {
+            using (var scope = services.CreateScope())
+            {
+                var unit = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                var customers = scope.ServiceProvider.GetRequiredService<ICustomerService>();
+                var users = scope.ServiceProvider.GetRequiredService<IUserManagementService>();
+                bool aborted = false;
+                try
+                {
+                    await unit.InTransactionAsync<bool>(async ct =>
+                    {
+                        await customers.SaveAsync(null, new SaveCustomerDto("Rolled back customer", null, "rollback@example.test", null), ct);
+                        await users.SaveAsync(null, new SaveUserDto { Login = "rolledback-user", FullName = "Rolled back user", Role = "Viewer" }, "rollback-password", ct);
+                        throw new ValidationException("Abort the whole operation.");
+                    });
+                }
+                catch (ValidationException) { aborted = true; }
+                Check(aborted, "Expected application rejection");
+            }
+            Check((await Get("/api/customers")).AsArray().All(c => (string?)c!["email"] != "rollback@example.test"), "Customer escaped transaction rollback");
+            Check((await Get("/api/users")).AsArray().All(u => (string)u!["login"]! != "rolledback-user"), "User escaped transaction rollback");
+        });
+
+        await Test("order repository refuses an update lock outside a transaction", async () =>
+        {
+            using var scope = services.CreateScope();
+            bool rejected = false;
+            try { await scope.ServiceProvider.GetRequiredService<IOrderRepository>().GetForUpdateAsync(1); }
+            catch (InvalidOperationException) { rejected = true; }
+            Check(rejected, "Unsafe order update lock was allowed");
+        });
+
         await Test("all five reports translate and execute on PostgreSQL", async () =>
         {
             foreach (string path in new[] { "orders", "orders/today?date=2026-09-01", "products", "low-stock", "manager-summary" })
@@ -110,6 +182,29 @@ internal static class TestRunner
             Check((int)empty["totalOrders"]! == 0 && (decimal)empty["totalAmount"]! == 0, "Date filter ignored");
             Check((await Get("/api/reports/products?from=2099-01-01&to=2099-01-02")).AsArray().Count == 0, "Product period ignored");
             Check((await Get("/api/reports/orders/today?date=2099-01-01"))["orders"]!.AsArray().Count == 0, "Day filter ignored");
+            var orders = (await Get("/api/orders")).AsArray();
+            Check((decimal)summary["totalAmount"]! == orders.Sum(o => (decimal)o!["totalAmount"]!), "Report totals differ from order totals");
+        });
+
+        await Test("product catalog, prices and stock persist through the application interfaces", async () =>
+        {
+            var product = await Read(await http.PostAsJsonAsync("/api/products", new
+            {
+                name = "Persistence test product", categoryName = "Persistence test category", price = 12.50m, quantity = 8, isActive = true
+            }), HttpStatusCode.Created);
+            int id = (int)product["id"]!;
+            Check((await Get("/api/products")).AsArray().Any(p => (int)p!["id"]! == id), "Created product missing from catalog");
+            await Read(await http.PutAsJsonAsync($"/api/products/{id}", new
+            {
+                name = "Updated persistence product", categoryName = "Another test category", price = 17.25m, quantity = 6, isActive = false
+            }));
+            product = await Get($"/api/products/{id}");
+            Check((decimal)product["price"]! == 17.25m && (string)product["categoryName"]! == "Another test category" && !(bool)product["isActive"]!,
+                "Product changes did not persist");
+            await Read(await http.PutAsJsonAsync($"/api/products/{id}/stock", new { quantity = 4 }));
+            Check((int)(await Get($"/api/products/{id}/stock"))["quantity"]! == 4, "Stock did not persist");
+            await Status(await http.PutAsJsonAsync($"/api/products/{id}/stock", new { quantity = -1 }), HttpStatusCode.BadRequest);
+            Check((int)(await Get($"/api/products/{id}/stock"))["quantity"]! == 4, "Rejected stock change persisted");
         });
 
         int customerId = 0;
@@ -166,6 +261,20 @@ internal static class TestRunner
             order = await Read(await http.PostAsJsonAsync("/api/orders", new { orderNumber = "atomic-test", customerId, comment = "original", items = new[] { new { productId = 1, quantity = 2 }, new { productId = 2, quantity = 1 } } }), HttpStatusCode.Created);
             orderId = (int)order["id"]!;
             Check(((string)order["version"]!).Length == 64, "Missing order revision");
+        });
+
+        await Test("database duplicate becomes a safe application conflict", async () =>
+        {
+            using var response = await http.PostAsJsonAsync("/api/orders", new
+            {
+                orderNumber = "atomic-test", customerId,
+                items = new[] { new { productId = 1, quantity = 1 } }
+            });
+            var body = await response.Content.ReadAsStringAsync();
+            Check(response.StatusCode == HttpStatusCode.Conflict, $"Expected conflict, got {response.StatusCode}");
+            Check(JsonNode.Parse(body)?["message"] is not null && !body.Contains("Npgsql") && !body.Contains("23505") && !body.Contains("INSERT INTO"),
+                "Conflict exposes provider details");
+            Check((await Get($"/api/orders/{orderId}")).ToJsonString() == order.ToJsonString(), "Duplicate insert changed the existing order");
         });
 
         await Test("atomic update changes multiple items and comment preserving historic price and IDs", async () =>
@@ -236,6 +345,33 @@ internal static class TestRunner
             await Status(await http.PutAsJsonAsync($"/api/orders/{orderId}", Draft(order, "blocked", order["items"]!.AsArray().Select(i => Item(i!)).ToArray())), HttpStatusCode.BadRequest);
             await Status(await http.PostAsJsonAsync($"/api/orders/{orderId}/items", new { productId = 4, quantity = 1 }), HttpStatusCode.BadRequest);
             await Status(await http.DeleteAsync($"/api/orders/{orderId}/items/{order["items"]![0]!["id"]}"), HttpStatusCode.BadRequest);
+        });
+
+        await Test("complete order lifecycle and cancellation retain exactly one history entry per transition", async () =>
+        {
+            var completed = await Read(await http.PostAsJsonAsync("/api/orders", new
+            {
+                orderNumber = "complete-lifecycle", customerId, items = new[] { new { productId = 1, quantity = 1 } }
+            }), HttpStatusCode.Created);
+            int completedId = (int)completed["id"]!;
+            await Status(await http.PostAsJsonAsync($"/api/orders/{completedId}/status", new { action = "ship" }), HttpStatusCode.BadRequest);
+            Check((await Get($"/api/orders/{completedId}")).ToJsonString() == completed.ToJsonString(), "Invalid transition changed the order");
+            foreach (var action in new[] { "register", "grant", "ship", "invoice" })
+                completed = await Read(await http.PostAsJsonAsync($"/api/orders/{completedId}/status", new { action }));
+            Check((string)completed["statusCode"]! == "Invoiced" && completed["statusHistory"]!.AsArray().Count == 5,
+                "Lifecycle did not persist its status/history");
+            await Status(await http.PostAsJsonAsync($"/api/orders/{completedId}/status", new { action = "cancel" }), HttpStatusCode.BadRequest);
+            Check((await Get($"/api/orders/{completedId}")).ToJsonString() == completed.ToJsonString(), "Final status was changed");
+
+            var cancelled = await Read(await http.PostAsJsonAsync("/api/orders", new
+            {
+                orderNumber = "cancelled-lifecycle", customerId, items = new[] { new { productId = 1, quantity = 1 } }
+            }), HttpStatusCode.Created);
+            int cancelledId = (int)cancelled["id"]!;
+            cancelled = await Read(await http.PostAsJsonAsync($"/api/orders/{cancelledId}/status", new { action = "cancel" }));
+            await Status(await http.PostAsJsonAsync($"/api/orders/{cancelledId}/status", new { action = "register" }), HttpStatusCode.BadRequest);
+            Check((string)cancelled["statusCode"]! == "Cancelled" && cancelled["statusHistory"]!.AsArray().Count == 2 &&
+                (await Get($"/api/orders/{cancelledId}")).ToJsonString() == cancelled.ToJsonString(), "Cancellation history is inconsistent");
         });
     }
 }

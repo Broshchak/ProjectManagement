@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\WpfClient\WpfClient.csproj" />
+    <None Include="..\WpfClient\App.xaml" Link="App.resources.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

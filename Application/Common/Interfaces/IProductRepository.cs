@@ -5,6 +5,7 @@ namespace Application.Common.Interfaces;
 
 public interface IProductRepository
 {
+    Task<IReadOnlyList<ProductAvailabilityDto>> GetAvailabilityAsync(IReadOnlyCollection<int> productIds, CancellationToken ct = default);
     Task<IEnumerable<ProductListDto>> GetProductsAsync(CancellationToken ct = default);
     Task<ProductListDto?> GetProductAsync(int id, CancellationToken ct = default);
     Task<ProductEntity?> GetByIdAsync(int id, CancellationToken ct = default);
