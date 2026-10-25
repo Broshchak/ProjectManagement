@@ -5,11 +5,13 @@
 **Name:** Orders Processing System  
 **Type:** C# WebAPI application, thin WPF desktop client, Telegram bot  
 **Project management methodology:** Agile Scrum  
-**Planning scope:** 3 sprints
+**Planning scope:** 3 initial sprints and 3 extension sprints
+
+**Requirements revision:** 25 October 2026. This specification describes target behaviour, not completed implementation.
 
 ## 1. Project Goal
 
-The goal is to develop a software system for processing product orders stored in a PostgreSQL database on a remote server.
+The goal is to develop a software system for processing product orders stored in a server-side database, initially PostgreSQL, with a replaceable persistence implementation.
 
 The system must support:
 
@@ -53,33 +55,27 @@ Development should run in parallel inside each sprint:
 
 ### Included in the project
 
-- C# WebAPI backend;
-- order and product domain model;
-- admin module for product management;
-- basic authentication and user roles;
-- order state machine;
-- business rule validation;
-- work with a remote PostgreSQL database;
-- WPF client for order processing;
-- Telegram bot for information, statistics, and reports;
-- basic logging, error handling, and validation;
-- testing of key business rules.
+- C# ASP.NET Core WebAPI, thin WPF client and Python Telegram bot;
+- orders, customers, products, price snapshots, stock checks and status history;
+- authentication and server-side checks of current user and role activity and permissions;
+- role creation, blocking/unblocking, deletion and section visibility management by Admin only;
+- one configurable workflow, server-side state machine, configuration APIs and WPF editor for Admin and Director only;
+- drag-and-drop between board columns with transition, version and concurrency checks;
+- report templates, a simple builder and server-generated PDF downloads for WPF and Telegram;
+- test delivery integration with Nova Poshta / Nova Post and LiqPay sandbox payments;
+- all database operations behind application interfaces; provider selection in server configuration;
+- PostgreSQL and a second database selected before implementation, with migrations and equivalent integration checks;
+- clear API errors, logging and tests of rules, permissions, retries and concurrency.
 
-### Outside the initial MVP
+### Outside this release
 
-- full payment system;
-- integration with real delivery services;
-- multi-level CRM;
-- complex staff management module;
-- enterprise-level audit of every user action;
-- advanced BI analytics;
-- mobile application.
+Production acquiring, automatic refunds, real shipments created for testing, arbitrary workflow scripts, full BPMN/Jira, multiple independent workflows, a page-layout report designer, arbitrary SQL/HTML/formulas, record/field-level permissions, a universal action-permission editor, complete stock reservation/accounting, a multi-level CRM and mobile apps are outside scope.
 
 ## 5. Main Entities
 
 ### Role
 
-Contains an identifier, role code, and role name.
+Contains an identifier, unique immutable code, editable name, is_active, is_system, record version and timestamps. System role codes are reserved; clients cannot set is_system.
 
 ### User
 
@@ -129,7 +125,7 @@ Contains an identifier, order reference, previous status, new status, user who c
 
 ## 6. Database Structure
 
-The actual database structure must match the SQL scripts:
+The initial database structure is described by these SQL scripts. Existing databases must be upgraded using non-destructive migrations; schema recreation containing DROP is for disposable test databases only:
 
 - `SQL/01_create_schema.sql`
 - `SQL/02_seed_data.sql`
@@ -166,111 +162,141 @@ Seed data must include:
 - base categories, products, prices, and stock;
 - demo customer, demo order `ORD-0001`, one order item, and initial status history.
 
+### Extension entities and tables
+
+| Entity / table | Required data |
+| --- | --- |
+| RolePermission / role_permissions | Role and known permission code, unique pair |
+| Workflow / workflow_settings | Published revision |
+| WorkflowDraft / workflow_drafts | Draft document, version, editor, timestamp |
+| OrderTransition / order_transitions | Source/target states, action label, active flag |
+| TransitionRole / order_transition_roles | Transition and permitted role |
+| TransitionRule / order_transition_rules | Transition, known rule code, typed parameters, evaluation order |
+| ReportTemplate / report_templates | Name, dataset, versioned JSON layout, author, activity, record version |
+| OrderShipment / order_shipments | Order, provider reference, shipment number/status, Test mode, operation result and last check |
+| OrderPayment / order_payments | Order, unique merchant/provider identifiers, amount, currency, status, Test mode and order version |
+
+Extend statuses with initial/active flags, edit-items permission, semantic category and colour. Roles and workflow configuration use versions for concurrent updates. Historical records and financial facts must be preserved. Each supported provider has compatible migrations; PostgreSQL-specific triggers and locking remain infrastructure details.
+
 ## 7. User Roles and Access Rights
 
-| Role | Rights |
+### System roles
+
+| Role | Capabilities |
 | --- | --- |
-| **Admin** | Product management, order viewing and editing, state transitions, statistics, user management |
-| **Manager / Operator** | Creating and processing orders, viewing products, executing allowed order actions |
-| **Viewer** | View-only access to products, orders, and statistics |
-| **Director** | Full view access, product and order management, statistics and reports through Telegram; no user role management |
+| Admin | Users, roles and visibility management; workflow editor; products, orders, statistics and reports |
+| Director | Workflow editor; product/order management; viewing users, statistics and reports; no user, role or visibility administration |
+| Manager / Operator | Creating/processing orders, viewing products and permitted transitions |
+| Viewer | Read-only access to permitted sections |
+| Custom role | Initially no permissions; Admin grants section visibility and the workflow editor can assign explicit transitions; no inherited system privileges |
 
-Access rules:
+Visibility does not grant edit permissions. Existing system-role action rights remain. Assigning a custom role a transition does not automatically grant order creation/editing or product management. A general editor for arbitrary action permissions is outside this release.
 
-- adding, editing, deactivating products, and changing stock are available to `Admin` and `Director`;
-- creating and processing orders is available to `Admin`, `Manager / Operator`, and `Director`;
-- viewing orders is available to all roles;
-- viewing statistics is available to `Admin`, `Viewer`, and `Director`;
-- viewing users is available to `Admin` and `Director`, but adding users or changing roles is available only to `Admin`;
-- Telegram reporting commands are available only to active users with `telegram_allowed = TRUE` and a filled `telegram_user_id`;
-- a user without the required role receives an access denial without data changes.
+Workflow.Manage is permanently restricted to system Admin and Director. Roles.Manage, Roles.ManageVisibility and user administration are permanently restricted to Admin. Display names, visibility settings and transition configuration cannot grant these protected capabilities.
+
+### Role lifecycle — Admin only
+
+- Create a role with a unique immutable code and editable name. New roles are active with no permissions. System codes are reserved; systemness is not client-controlled.
+- Rename, block or unblock using the expected record version. Blocked roles cannot be assigned to users.
+- Blocking keeps users, assignments and history but denies login and protected requests for all users with that role, including requests using previously issued JWTs and Telegram access. Check current user/role activity and permissions in the database on every request.
+- Unblocking permits login again; an unexpired JWT can pass current activity checks again. Permanent token revocation is a separate future capability.
+- The Admin role cannot be blocked or deleted. Changes to users must never remove, deactivate or reassign the last active administrator; checks are atomic.
+- Other system roles may be blocked but never deleted. Custom roles may be deleted only when no users (including inactive users), Telegram links, published transitions, saved workflow drafts or other records reference them. Otherwise return 409 with dependencies; never cascade-delete related data.
+- Director cannot call administrative role APIs. Minimal role dictionaries needed by the workflow editor are exposed by its own authorised endpoints.
+
+### Section visibility — Admin only
+
+Configure visibility of dashboard, orders, board, products, customers, users, reports, shipments and payments. The permission catalog is fixed in code; assignments are stored in role_permissions. Missing or unknown permissions deny access. Board access requires both Board.View and Orders.View.
+
+The client builds navigation from effective permissions. The server applies equivalent restrictions to endpoints, nested DTOs, PDF and Telegram; inaccessible data cannot be retrieved through another route. Following permission refresh or 403, the client closes the inaccessible section and clears its data. Concurrent role/visibility updates require expected versions and return 409 on conflict. Protected administrative capabilities cannot be removed through this matrix.
 
 ## 8. Order States
 
-An order can have one of these states:
+Admin and Director configure states through APIs and the WPF editor. One published workflow applies to all orders; drafts do not change live behaviour.
 
-- **NewOrder** - new order;
-- **Registered** - registered order;
-- **Granted** - approved order;
-- **Shipped** - shipped order;
-- **Invoiced** - paid or invoiced order;
-- **Cancelled** - cancelled order.
+The initial template contains NewOrder, Registered, Granted, Shipped, Invoiced and Cancelled. Invoiced means an invoice was issued, not that payment was confirmed. Payments are stored separately; an optional Paid state requires PaymentSucceeded. Each state has an immutable code, label, display order, active/initial/final flags, semantic category, edit-items permission and colour.
 
-Allowed transitions:
+The board, filters, available actions and status statistics use API configuration. Adding a state does not require rebuilding WPF. State labels are not proof of financial events.
 
-| Current state | Next state | Description |
-| --- | --- | --- |
-| NewOrder | Registered | Register a new order |
-| NewOrder | Cancelled | Cancel a new order |
-| Registered | Granted | Approve a registered order |
-| Registered | Cancelled | Cancel a registered order |
-| Granted | Shipped | Ship an approved order |
-| Granted | Cancelled | Cancel an approved order |
-| Shipped | Invoiced | Mark as paid or invoiced after shipping |
+Initial transitions: NewOrder → Registered/Cancelled; Registered → Granted/Cancelled; Granted → Shipped/Cancelled; Shipped → Invoiced. These are seed configuration, not the only possible transitions.
 
-Forbidden transitions:
+Each transition has an action label, allowed roles and AND-combined rules from a known catalog: HasItems, ProductsActive, StockAvailable, CustomerPhoneRequired, CommentRequired, followed by PaymentSucceeded and ShipmentCreated after integrations. New rule types require server code; existing parameters are configurable without deployment. No executable user scripts.
 
-- shipping an order that was not registered and approved;
-- approving a `NewOrder` without registration;
-- changing `Cancelled` to any other state;
-- changing `Invoiced` to any other state in the MVP;
-- skipping required intermediate states.
+A single state-machine service checks the current user/role, order version, workflow revision, current state, transition and guards within a transaction; it saves the new state and exactly one history record. All status-change routes delegate to it. Arbitrary statusId assignment is forbidden.
+
+Publishing validates exactly one initial state, unique codes, references, reachability, accidental dead ends and no outgoing transitions from final states. It displays impact on current orders and updates the published revision atomically. Referenced states/codes cannot be deleted or silently changed. Deactivating occupied states or removing exits requires relocating affected orders first. Publishing and transitions coordinate their revision checks to prevent races. A rejected operation leaves data unchanged; version conflicts return 409.
 
 ## 9. Business Rules
 
-- A product can be added only to an order in `NewOrder` or `Registered`.
-- A product cannot be added to an order in `Granted`, `Shipped`, `Invoiced`, or `Cancelled`.
-- Only active products can be added to an order.
-- A product with an invalid price or unavailable quantity cannot be added.
-- Product data in an existing order item must not be changed automatically after catalog changes.
-- An order cannot be registered without at least one item.
-- An order cannot be approved if product quantity is invalid or unavailable.
-- An order cannot be shipped before approval.
-- A cancelled order cannot be edited.
-- All successful state changes must be stored in status history.
+- Items can be edited only in a non-final state with canEditItems and the appropriate user action right; initially NewOrder and Registered.
+- Products must be active, with positive price and quantity within available stock. Creation and editing share consistent validation.
+- Existing item prices are historical snapshots and are not overwritten by catalog changes.
+- Registration requires items; approval checks product availability and quantities. Access, integrity and finality invariants cannot be disabled by configured rules.
+- Stock checking does not reserve stock; complete reservation/accounting is outside scope.
+- Every successful transition writes exactly one history record. Blocked roles cannot execute previously assigned transitions.
+- Shipment, payment and business status are separate. A shipment document is not proof of dispatch and an invoice is not proof of payment.
+- An active payment attempt freezes order contents and amount. A late successful payment after cancellation is retained and flagged for manual handling.
+- Failed operations return clear errors and do not leave partially saved changes.
 
 ## 10. WebAPI Requirements
 
-The backend must provide endpoints for:
+Keep authentication, current user, order/item/product/customer/user operations and JSON statistics. Business validation runs on the server; WPF and Telegram use the API only.
 
-- authentication and current user role;
-- viewing products;
-- product administration;
-- creating and viewing orders;
-- adding, changing, and deleting order items;
-- order state transitions: `register`, `grant`, `ship`, `invoice`, `cancel`;
-- order statistics;
-- report data for Telegram.
+| Area | Proposed endpoints |
+| --- | --- |
+| Roles — Admin only | GET/POST /api/roles; PUT /api/roles/{id}; PUT /api/roles/{id}/active; DELETE /api/roles/{id} |
+| Permissions | GET /api/permissions; GET /api/roles/permissions; PUT /api/roles/{roleId}/permissions — Admin; GET /api/auth/me/permissions — current user |
+| Workflow | GET /api/workflow; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
+| Transitions | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{transitionId} |
+| Reports | CRUD /api/report-templates; POST /api/reports/pdf |
+| Delivery | GET /api/delivery/cities; GET /api/delivery/warehouses; GET/POST /api/orders/{id}/shipment; POST /api/orders/{id}/shipment/refresh |
+| Payments | POST/GET /api/orders/{id}/payments; POST /api/payments/{id}/refresh; POST /api/payments/liqpay/callback |
 
-API responses must use DTOs and must not expose internal database implementation details. Business rule errors must have clear messages and suitable HTTP status codes.
+Published workflow is readable by users with order access and workflow editors. Drafts, rule catalog, validation and publication are Admin/Director only. Save the complete draft in one PUT with expectedDraftVersion; publishing also checks expectedWorkflowRevision. Transitions require the visible order's expectedVersion, workflow revision and comment. Role updates require expectedVersion; DELETE uses If-Match. Minimal role dictionaries for workflow editors do not expose role-administration APIs to Director.
+
+Use DTOs. Return 401 for missing authentication, 403 for denied access, 404 for missing objects, 409 for version/dependency conflicts and a consistent 400 or 422 for invalid data/rules.
+
+### Persistence and architecture
+
+Preserve WebApi, Application, Domain, Infrastructure, WpfClient, TelegramBot and tests. Use Controller → Application service → repository/query and transaction interfaces → Infrastructure → database. Extend existing IOrderRepository, IProductRepository, IUserRepository and IUnitOfWork; add small interfaces for missing operations, including roles/permissions, workflow, reports, shipments and payments.
+
+Controllers and business services do not use DbContext, DbSet, IQueryable, SQL or Npgsql-specific exceptions. Infrastructure implements locking, shared transaction sessions, migrations and translation of provider errors to common conflicts. Reuse EF implementations where semantics match.
+
+Database:Provider and connection settings select the implementation at API startup. Switching requires restart, does not copy data and does not change business code or client contracts. PostgreSQL and a second chosen provider must pass equivalent integration scenarios; interfaces alone do not complete switching support.
+
+Use one workflow service, a small rule evaluator, one PDF service and external provider adapters. Keep new WPF view models separate. Microservices, a broker and a universal BPMN engine are unnecessary for this scope.
+
+### Server reports
+
+Templates contain a dataset (orders, product sales, low stock, summary), title, known columns/order, filters, sorting, one grouping, totals, note and page orientation. Use known blocks, not arbitrary SQL/scripts/HTML. Admin/Director edit shared templates; users need Reports.View and permissions for all data/blocks used. Missing source permissions deny generation.
+
+The server validates template schema/version and limits, builds one data snapshot and renders QuestPDF with bundled Ukrainian fonts. Return application/pdf and a file name. Preview also uses server generation; JSON reports remain for screens. Define sales semantics; financial totals use confirmed payments and mark test data separately. Convert Europe/Kyiv date boundaries to UTC including daylight-saving transitions. Synchronous generation has row, period and duration limits. Verify the library and fonts on the target host.
+
+### Test delivery and payments
+
+First validate Nova Poshta / Nova Post sandbox credentials, required domestic route, dictionaries, test shipment creation and tracking. API 2.0 and Nova Post have different contracts/keys. Support recipient, city/warehouse, weight/packages/value, server-configured sender, one active shipment per order, creation and manual refresh. If the official scenario is unavailable, label fake demonstrations explicitly; they do not prove external integration.
+
+Use LiqPay sandbox Checkout: the server determines amount/currency and creates a uniquely identified attempt; the client opens the provider checkout in a browser. Card data goes only to LiqPay. A public HTTPS callback verifies signature, merchant, IDs, amount, currency and test mode. Check the signature algorithm against the selected API version and an actual sandbox callback; older examples may differ. Processing is idempotent; stale Pending cannot overwrite success. Browser return is not proof of payment; a server-side status refresh reconciles missing callbacks.
+
+External calls run outside database transactions. Save operation state before calling and reconcile unknown results rather than blindly repeating creation. Keep credentials on the server. Callback records the financial fact; the first release uses an explicit user action through the workflow to change business status. Both integrations have real adapters and fakes for controlled tests.
 
 ## 11. WPF Client Requirements
 
-The WPF application is a thin client and must not duplicate backend business logic.
+The WPF application is a thin API client with login, overview, order list/details/editor, product/customer/user screens, reports and the following editors:
 
-Required screens:
+- Roles and access — Admin only: add, rename, block/unblock, delete with dependency explanations, and section-visibility matrix. Clearly show system/blocked status. Confirm destructive actions; update the local list only after API success.
+- Workflow — Admin/Director only: forms/lists for states, transitions, allowed roles and typed rules; save draft, validate, show affected orders and publish. Protect against concurrent edits and silent loss of unsaved changes. A graph designer is outside scope.
+- Reports — authorised users select templates/parameters and download server PDF; Admin/Director edit shared templates using simple field/block forms.
 
-- login screen;
-- dashboard or overview screen;
-- order list screen;
-- order details screen;
-- new order form;
-- product administration screen;
-- reports/statistics screen if needed for demonstration.
+Build navigation from current effective permissions. Hide protected data and actions, refresh permissions on navigation refresh/403, close inaccessible sections and clear their data. API enforcement remains mandatory.
 
-The UI must show or hide actions according to the current user role and the current order state. Validation errors and API errors must be shown in a clear form.
+For drag-and-drop, start after the mouse movement threshold and use the order version visible before dragging. Highlight allowed targets; support empty columns, cancel outside the board and no-op in the same column. If several transitions lead to one target, ask which action to use; collect mandatory comments. Send one request and block duplicate actions for that card; complete the visual move only after server success. On timeout reread state/history; on 409 refresh current data. Refresh counts, totals and filters; ignore late responses from previous sessions. Preserve button-based transitions. Manual within-column ordering is outside scope.
+
+Keep workflow, roles and report-builder logic in separate small view models rather than extending MainViewModel indefinitely.
 
 ## 12. Telegram Bot Requirements
 
-The Telegram bot must support:
-
-- `/start`;
-- `/help`;
-- `/stats`;
-- `/orders_today`;
-- `/report`.
-
-The bot must receive statistics and report data through WebAPI. Management commands must be restricted to allowed users.
+Support /start, /help, /stats, /orders_today and /report through WebAPI. /report downloads and sends the server-generated PDF. Server checks use the linked identity, current user/role activity and current permissions. A Telegram link alone does not bypass role blocking. Test payments and emulated shipments are clearly labelled.
 
 ## 13. Epics
 
@@ -334,6 +360,10 @@ Expected result:
 - main workflows are checked;
 - the system is ready for Sprint Review demonstration.
 
+### Epic 7. System extension
+
+Complete persistence interfaces and a second provider; Admin-only role lifecycle and visibility management; dynamic workflow APIs and Admin/Director editor; concurrency-safe board drag-and-drop; server PDF/templates/builder; test delivery and payments; regression tests and documentation. Epics 1–6 describe the foundation; their fixed states and roles are initial defaults extended by sections 4–12.
+
 ## 14. Sprint Plan
 
 ### Sprint 1. Core Domain and API Foundation
@@ -379,6 +409,18 @@ Planned work:
 - run integration testing for WebAPI, WPF, product admin, and Telegram bot;
 - fix defects;
 - prepare final documentation and demo scenario.
+
+### Extension sprints
+
+Initial Sprints 1–3 above cover the foundation. Add:
+
+| Sprint | Outcome |
+| --- | --- |
+| A | Check provider access; persistence interfaces, migrations, current permissions, role/visibility management and workflow model/APIs |
+| B | WPF workflow editor, dynamic board and drag-and-drop, server PDF and report builder |
+| C | Delivery, payments, second-provider completion, end-to-end verification and documentation |
+
+Estimate: 30–49 person-days on PostgreSQL, plus 4–8 for the second database; 34–57 total, excluding access delays. Allow a 20–30% learning-team contingency. Calendar sprint length depends on team availability. Verify external credentials at the beginning.
 
 ## 15. Definition of Ready
 
@@ -447,16 +489,18 @@ The Trello board must follow Agile Scrum workflow and contain these columns:
 | Incorrect role restrictions | High | Check API endpoints for every role |
 | Deleting products already used in orders | Medium | Use deactivation instead of physical deletion |
 
-## 20. MVP Acceptance Criteria
+## 20. System and Extension Acceptance Criteria
 
-- A user can create an order.
-- A user can add products to a new or registered order.
-- An administrator and director can add, edit, and deactivate products.
-- Users with different roles have different view and edit rights.
-- The system blocks forbidden state actions.
-- A user can process an order through the allowed lifecycle.
-- A cancelled order cannot be edited.
-- The WPF client works with WebAPI.
-- The Telegram bot returns statistics.
-- The director can receive a report through Telegram.
-- Main business rules are covered by tests.
+- Core orders/products/customers, historical prices and status history work through the API under current permissions.
+- Only Admin creates, renames, blocks/unblocks and deletes roles, assigns user roles and changes visibility. Direct API calls by other roles are denied.
+- Blocking denies login, protected requests with old JWTs and Telegram access; blocked roles cannot be newly assigned. Unblocking follows the documented current-activity semantics.
+- Referenced roles return 409 on deletion. System roles cannot be deleted, Admin cannot be blocked and the last active administrator is protected atomically.
+- Denied visibility hides the WPF section and denies equivalent API, nested DTO, PDF and Telegram data. Viewing never implicitly grants editing.
+- Admin and Director can create states/transitions/rules and allowed-role assignments, validate and publish from WPF. Other roles cannot edit workflow; invalid drafts do not change live orders.
+- Custom states appear in board, filters and statistics without client rebuilding. Guards and final states are enforced.
+- Simultaneous card moves produce one transition/history record. Conflicts, timeouts and repeats do not leave false UI state.
+- Authorised users receive ready-made PDFs; Unicode fonts, multipage tables, dates and totals render correctly on the target host.
+- Test shipment creation avoids duplicates and supports reconciliation. Fake demonstrations are clearly distinguished from provider sandbox execution.
+- LiqPay sandbox success, failure, duplicate/invalid callback and reconciliation work with amount/currency checks. Test payments remain distinct; an invoice is not treated as proof of payment.
+- All persistence operations use interfaces. Both chosen providers pass equivalent transactions, rollback, concurrency, monetary precision and date scenarios without business-code changes.
+- The solution builds; relevant automated/manual checks pass; API contracts, demonstration instructions and specification copies are consistent.
