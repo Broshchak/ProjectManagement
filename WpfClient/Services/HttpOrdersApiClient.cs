@@ -164,6 +164,101 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             : new ProductStock { ProductId = stock.ProductId, Quantity = stock.Quantity };
     }
 
+    public async Task<ReportSummary> GetOrdersReportAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        OrderReportResponse? report = await httpClient.GetFromJsonAsync<OrderReportResponse>(
+            $"api/reports/orders{BuildDateRangeQuery(from, to)}",
+            cancellationToken);
+        return report is null
+            ? throw new InvalidOperationException("API не повернув звіт по замовленнях.")
+            : new ReportSummary
+            {
+                TotalOrders = report.TotalOrders,
+                NewOrders = report.NewOrders,
+                OrdersInProgress = report.OrdersInProgress,
+                ShippedOrders = report.ShippedOrders,
+                InvoicedOrders = report.InvoicedOrders,
+                CancelledOrders = report.CancelledOrders,
+                TotalAmount = report.TotalAmount,
+                AverageOrderAmount = report.AverageOrderAmount,
+                LowStockProducts = report.LowStockProducts,
+                TopProductName = report.TopProductName,
+                TopProductQuantity = report.TopProductQuantity
+            };
+    }
+
+    public async Task<(DateTime Date, int TotalOrders, decimal TotalAmount, IReadOnlyList<TodayOrderReportItem> Orders)> GetTodayOrdersReportAsync(DateTime date, CancellationToken cancellationToken = default)
+    {
+        TodayOrdersReportResponse? report = await httpClient.GetFromJsonAsync<TodayOrdersReportResponse>(
+            $"api/reports/orders/today?date={date:yyyy-MM-dd}",
+            cancellationToken);
+
+        if (report is null)
+        {
+            throw new InvalidOperationException("API не повернув звіт за дату.");
+        }
+
+        return (report.Date, report.TotalOrders, report.TotalAmount, report.Orders.Select(MapTodayOrder).ToList());
+    }
+
+    public async Task<IReadOnlyList<ProductSalesReportItem>> GetProductSalesReportAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        List<ProductSalesReportResponse> products = await httpClient.GetFromJsonAsync<List<ProductSalesReportResponse>>(
+            $"api/reports/products{BuildDateRangeQuery(from, to)}",
+            cancellationToken) ?? [];
+
+        return products.Select(item => new ProductSalesReportItem
+        {
+            ProductId = item.ProductId,
+            ProductName = item.ProductName,
+            CategoryName = item.CategoryName,
+            Quantity = item.Quantity,
+            TotalAmount = item.TotalAmount
+        }).ToList();
+    }
+
+    public async Task<IReadOnlyList<LowStockProductReportItem>> GetLowStockReportAsync(CancellationToken cancellationToken = default)
+    {
+        List<LowStockProductReportResponse> products = await httpClient.GetFromJsonAsync<List<LowStockProductReportResponse>>(
+            "api/reports/low-stock",
+            cancellationToken) ?? [];
+
+        return products.Select(item => new LowStockProductReportItem
+        {
+            ProductId = item.ProductId,
+            ProductName = item.ProductName,
+            CategoryName = item.CategoryName,
+            Quantity = item.Quantity,
+            Price = item.Price
+        }).ToList();
+    }
+
+    public async Task<string> GetManagerSummaryReportAsync(DateTime? from = null, DateTime? to = null, CancellationToken cancellationToken = default)
+    {
+        ManagerSummaryReportResponse? report = await httpClient.GetFromJsonAsync<ManagerSummaryReportResponse>(
+            $"api/reports/manager-summary{BuildDateRangeQuery(from, to)}",
+            cancellationToken);
+
+        return report?.Text ?? string.Empty;
+    }
+
+    private static string BuildDateRangeQuery(DateTime? from, DateTime? to)
+    {
+        List<string> parts = [];
+
+        if (from.HasValue)
+        {
+            parts.Add($"from={from.Value:yyyy-MM-dd}");
+        }
+
+        if (to.HasValue)
+        {
+            parts.Add($"to={to.Value:yyyy-MM-dd}");
+        }
+
+        return parts.Count == 0 ? string.Empty : $"?{string.Join("&", parts)}";
+    }
+
     private static OrderListItem MapOrderSummary(OrderSummaryResponse order)
     {
         return new OrderListItem
@@ -220,6 +315,20 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             Price = product.Price,
             Quantity = product.Quantity,
             IsActive = product.IsActive
+        };
+    }
+
+    private static TodayOrderReportItem MapTodayOrder(OrderReportItemResponse order)
+    {
+        return new TodayOrderReportItem
+        {
+            Id = order.Id,
+            OrderNumber = order.OrderNumber,
+            CustomerFullName = order.CustomerFullName,
+            StatusCode = order.StatusCode,
+            StatusName = order.StatusName,
+            TotalAmount = order.TotalAmount,
+            CreatedAt = order.CreatedAt
         };
     }
 
@@ -309,6 +418,92 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         public int ProductId { get; set; }
 
         public int Quantity { get; set; }
+    }
+
+    private sealed class OrderReportResponse
+    {
+        public int TotalOrders { get; set; }
+
+        public int NewOrders { get; set; }
+
+        public int OrdersInProgress { get; set; }
+
+        public int ShippedOrders { get; set; }
+
+        public int InvoicedOrders { get; set; }
+
+        public int CancelledOrders { get; set; }
+
+        public decimal TotalAmount { get; set; }
+
+        public decimal AverageOrderAmount { get; set; }
+
+        public int LowStockProducts { get; set; }
+
+        public string TopProductName { get; set; } = string.Empty;
+
+        public int TopProductQuantity { get; set; }
+    }
+
+    private sealed class TodayOrdersReportResponse
+    {
+        public DateTime Date { get; set; }
+
+        public int TotalOrders { get; set; }
+
+        public decimal TotalAmount { get; set; }
+
+        public List<OrderReportItemResponse> Orders { get; set; } = [];
+    }
+
+    private sealed class OrderReportItemResponse
+    {
+        public int Id { get; set; }
+
+        public string OrderNumber { get; set; } = string.Empty;
+
+        public string CustomerFullName { get; set; } = string.Empty;
+
+        public string StatusCode { get; set; } = string.Empty;
+
+        public string StatusName { get; set; } = string.Empty;
+
+        public decimal TotalAmount { get; set; }
+
+        public DateTime CreatedAt { get; set; }
+    }
+
+    private sealed class ProductSalesReportResponse
+    {
+        public int ProductId { get; set; }
+
+        public string ProductName { get; set; } = string.Empty;
+
+        public string CategoryName { get; set; } = string.Empty;
+
+        public int Quantity { get; set; }
+
+        public decimal TotalAmount { get; set; }
+    }
+
+    private sealed class LowStockProductReportResponse
+    {
+        public int ProductId { get; set; }
+
+        public string ProductName { get; set; } = string.Empty;
+
+        public string CategoryName { get; set; } = string.Empty;
+
+        public int Quantity { get; set; }
+
+        public decimal Price { get; set; }
+    }
+
+    private sealed class ManagerSummaryReportResponse
+    {
+        public DateTime CreatedAt { get; set; }
+
+        public string Text { get; set; } = string.Empty;
     }
 
     private sealed class ApiErrorResponse

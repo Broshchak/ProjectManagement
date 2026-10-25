@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Microsoft.Win32;
 using WpfClient.Models;
 using WpfClient.Services;
 using WpfClient.Views;
@@ -31,6 +32,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ProductListItem? _selectedOrderItemProduct;
     private ProductListItem? _selectedProduct;
     private ReportSummary _summary = new();
+    private DateTime _reportDateFrom = DateTime.Today.AddMonths(-1);
+    private DateTime _reportDateTo = DateTime.Today;
+    private DateTime _todayReportDate = DateTime.Today;
+    private int _todayReportTotalOrders;
+    private decimal _todayReportTotalAmount;
+    private string _managerReportText = "Немає даних.";
+    private int _selectedReportTabIndex;
     private bool _isAuthenticated;
     private bool _isLoading;
     private bool _isOrderDetailsLoading;
@@ -106,6 +114,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
+        RefreshReportsCommand = new RelayCommand(async _ => await LoadReportsAsync(), _ => IsAuthenticated && !IsLoading);
+        ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => IsAuthenticated && !IsLoading && CanViewReports);
         ClearOrderFiltersCommand = new RelayCommand(_ => ClearOrderFilters(), _ => HasOrderFilters);
         ClearProductFiltersCommand = new RelayCommand(_ => ClearProductFilters(), _ => HasProductFilters);
         OpenProductPriceSearchCommand = new RelayCommand(_ => OpenProductPriceSearch(), _ => SelectedProduct is not null);
@@ -183,6 +193,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ProductListItem> FilteredProducts { get; } = [];
 
+    public ObservableCollection<TodayOrderReportItem> TodayReportOrders { get; } = [];
+
+    public ObservableCollection<ProductSalesReportItem> ProductSalesReport { get; } = [];
+
+    public ObservableCollection<LowStockProductReportItem> LowStockReport { get; } = [];
+
     public ObservableCollection<TestUser> TestUsers { get; }
 
     public IReadOnlyList<string> RoleOptions { get; } = ["Admin", "Manager", "Viewer", "Director"];
@@ -194,6 +210,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand SignOutCommand { get; }
 
     public ICommand RefreshDataCommand { get; }
+
+    public ICommand RefreshReportsCommand { get; }
+
+    public ICommand ExportReportsToPdfCommand { get; }
 
     public ICommand ClearOrderFiltersCommand { get; }
 
@@ -341,6 +361,120 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string TotalAmountReportText => T.Format("TotalAmountLabel", Summary.TotalAmountText);
 
+    public DateTime ReportDateFrom
+    {
+        get => _reportDateFrom;
+        set
+        {
+            if (_reportDateFrom == value)
+            {
+                return;
+            }
+
+            _reportDateFrom = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ReportPeriodText));
+        }
+    }
+
+    public DateTime ReportDateTo
+    {
+        get => _reportDateTo;
+        set
+        {
+            if (_reportDateTo == value)
+            {
+                return;
+            }
+
+            _reportDateTo = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ReportPeriodText));
+        }
+    }
+
+    public string ReportPeriodText => $"Період: {ReportDateFrom:dd.MM.yyyy} - {ReportDateTo:dd.MM.yyyy}";
+
+    public DateTime TodayReportDate
+    {
+        get => _todayReportDate;
+        set
+        {
+            if (_todayReportDate == value)
+            {
+                return;
+            }
+
+            _todayReportDate = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TodayReportSummaryText));
+        }
+    }
+
+    public int TodayReportTotalOrders
+    {
+        get => _todayReportTotalOrders;
+        private set
+        {
+            if (_todayReportTotalOrders == value)
+            {
+                return;
+            }
+
+            _todayReportTotalOrders = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TodayReportSummaryText));
+        }
+    }
+
+    public decimal TodayReportTotalAmount
+    {
+        get => _todayReportTotalAmount;
+        private set
+        {
+            if (_todayReportTotalAmount == value)
+            {
+                return;
+            }
+
+            _todayReportTotalAmount = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TodayReportSummaryText));
+        }
+    }
+
+    public string TodayReportSummaryText =>
+        $"Дата: {TodayReportDate:dd.MM.yyyy}. Замовлень: {TodayReportTotalOrders}. Сума: {TodayReportTotalAmount:N2} грн";
+
+    public string ManagerReportText
+    {
+        get => _managerReportText;
+        private set
+        {
+            if (_managerReportText == value)
+            {
+                return;
+            }
+
+            _managerReportText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int SelectedReportTabIndex
+    {
+        get => _selectedReportTabIndex;
+        set
+        {
+            if (_selectedReportTabIndex == value)
+            {
+                return;
+            }
+
+            _selectedReportTabIndex = value;
+            OnPropertyChanged();
+        }
+    }
     public string OrderSearchText
     {
         get => _orderSearchText;
@@ -1269,6 +1403,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanEditSelectedOrder));
             OnPropertyChanged(nameof(CanEditOrderDraft));
             Summary = BuildReportSummary(_allOrders, _allProducts, _loadedOrderDetails);
+            await LoadReportsAsync();
 
             if (productLoadError is not null)
             {
@@ -1283,6 +1418,95 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsLoading = false;
         }
+    }
+
+    private async Task LoadReportsAsync()
+    {
+        try
+        {
+            if (ReportDateFrom.Date > ReportDateTo.Date)
+            {
+                ApiErrorMessage = "Дата початку періоду не може бути більшою за дату завершення.";
+                return;
+            }
+
+            Summary = await _apiClient.GetOrdersReportAsync(ReportDateFrom, ReportDateTo);
+
+            var todayReport = await _apiClient.GetTodayOrdersReportAsync(TodayReportDate);
+            TodayReportDate = todayReport.Date;
+            TodayReportTotalOrders = todayReport.TotalOrders;
+            TodayReportTotalAmount = todayReport.TotalAmount;
+            ReplaceCollection(TodayReportOrders, todayReport.Orders);
+
+            IReadOnlyList<ProductSalesReportItem> productSales = await _apiClient.GetProductSalesReportAsync(ReportDateFrom, ReportDateTo);
+            ReplaceCollection(ProductSalesReport, productSales);
+
+            IReadOnlyList<LowStockProductReportItem> lowStock = await _apiClient.GetLowStockReportAsync();
+            ReplaceCollection(LowStockReport, lowStock);
+
+            ManagerReportText = await _apiClient.GetManagerSummaryReportAsync(ReportDateFrom, ReportDateTo);
+        }
+        catch (Exception exception)
+        {
+            ApiErrorMessage = $"Не вдалося завантажити звіти. Деталі: {exception.Message}";
+        }
+    }
+
+    private async Task ExportReportsToPdfAsync()
+    {
+        try
+        {
+            await LoadReportsAsync();
+
+            SaveFileDialog dialog = new()
+            {
+                Title = "Зберегти звіти в PDF",
+                Filter = "PDF файл (*.pdf)|*.pdf",
+                FileName = GetPdfFileName(),
+                AddExtension = true,
+                DefaultExt = ".pdf"
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            PdfReportExporter.Save(
+                dialog.FileName,
+                SelectedReportTabIndex,
+                Summary,
+                ReportDateFrom,
+                ReportDateTo,
+                TodayReportDate,
+                TodayReportTotalOrders,
+                TodayReportTotalAmount,
+                TodayReportOrders,
+                ProductSalesReport,
+                LowStockReport,
+                ManagerReportText);
+
+            MessageBox.Show(
+                "PDF-звіт збережено.",
+                "Звіти",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            ApiErrorMessage = $"Не вдалося зберегти PDF. Деталі: {exception.Message}";
+        }
+    }
+
+    private string GetPdfFileName()
+    {
+        return SelectedReportTabIndex switch
+        {
+            1 => $"orders-{TodayReportDate:yyyy-MM-dd}.pdf",
+            2 => $"products-report-{ReportDateFrom:yyyy-MM-dd}-{ReportDateTo:yyyy-MM-dd}.pdf",
+            3 => "low-stock-report.pdf",
+            _ => $"summary-report-{ReportDateFrom:yyyy-MM-dd}-{ReportDateTo:yyyy-MM-dd}.pdf"
+        };
     }
 
     private async Task LoadSelectedOrderDetailsAsync()
