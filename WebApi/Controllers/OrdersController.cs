@@ -1,90 +1,79 @@
-using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
+using System.Globalization;
 using Application.Common.Interfaces;
 using Application.Dtos.Orders;
+using Application.Security;
 using Microsoft.AspNetCore.Mvc;
-using Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
+using WebApi.Security;
 
-namespace WebApi.Controllers;
-
-[Route("api/orders")]
-[ApiController]
-public class OrdersController(IOrderService orderService, OrderEditingService editing) : ControllerBase
+namespace WebApi.Controllers
 {
-    [HttpGet]
-    public async Task<IActionResult> GetOrders(CancellationToken ct = default)
+    [Route("api/orders")]
+    [ApiController]
+    public class OrdersController(IOrderService orderService) : ControllerBase
     {
-        var orders = await orderService.GetOrdersAsync(ct);
-        return Ok(orders);
-    }
-
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> GetOrderById(int id, CancellationToken ct = default)
-    {
-        var order = await orderService.GetOrderByIdAsync(id, ct);
-        return order is null ? NotFound(new { message = "Order was not found." }) : Ok(order);
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderDto dto, CancellationToken ct = default)
-    {
-        try
+        [HttpGet]
+        [HasPermission(Permissions.OrdersRead)]
+        public async Task<IActionResult> GetOrders(CancellationToken ct = default)
         {
-            var createdOrder = await orderService.CreateOrderAsync(dto, GetCurrentUserId(), ct);
+            var orders = await orderService.GetOrdersAsync(ct);
+            return Ok(orders);
+        }
+
+        [HttpGet("{id:int}")]
+        [HasPermission(Permissions.OrdersRead)]
+        public async Task<IActionResult> GetOrderById(int id, CancellationToken ct = default)
+        {
+            var order = await orderService.GetOrderByIdAsync(id, ct);
+            if (order == null)
+            {
+                return NotFound();
+            }
+
+            return Ok(order);
+        }
+
+        [HttpPost]
+        [HasPermission(Permissions.OrdersCreate)]
+        public async Task<IActionResult> CreateOrder([FromBody] CreateOrderDto dto, CancellationToken ct = default)
+        {
+            var currentUserId = GetCurrentUserId();
+            var createdOrder = await orderService.CreateOrderAsync(dto, currentUserId, ct);
+
             return CreatedAtAction(nameof(GetOrderById), new { id = createdOrder.Id }, createdOrder);
         }
-        catch (ValidationException ex) { return BadRequest(new { message = ex.Message }); }
-        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        { return Conflict(new { message = "Order number is already in use." }); }
-    }
 
-    [HttpPost("{id:int}/items")]
-    public async Task<IActionResult> AddOrderItem(int id, [FromBody] CreateOrderItemDto dto, CancellationToken ct = default)
-    {
-        return await Edit(() => editing.AddItemAsync(id, dto, ct));
-    }
-
-    [HttpDelete("{id:int}/items/{itemId:int}")]
-    public async Task<IActionResult> RemoveOrderItem(int id, int itemId, CancellationToken ct = default)
-    {
-        var result = await Edit(() => editing.RemoveItemAsync(id, itemId, ct));
-        return result is OkObjectResult ? NoContent() : result;
-    }
-
-    [HttpPost("{id:int}/status")]
-    public async Task<IActionResult> ChangeOrderStatus(int id, [FromBody] ChangeOrderStatusDto dto, CancellationToken ct = default)
-    {
-        return await Edit(() => editing.ChangeStatusAsync(id, dto, GetCurrentUserId(), ct));
-    }
-
-    [HttpPut("{id:int}")]
-    public Task<IActionResult> UpdateOrder(int id, [FromBody] UpdateOrderDto dto, CancellationToken ct = default) =>
-        Edit(() => editing.UpdateAsync(id, dto, ct));
-
-    private async Task<IActionResult> Edit(Func<Task<OrderDetailDto?>> action)
-    {
-        try
+        [HttpPost("{id:int}/items")]
+        [HasPermission(Permissions.OrdersEdit)]
+        public async Task<IActionResult> AddOrderItem(int id, [FromBody] CreateOrderItemDto dto, CancellationToken ct = default)
         {
-            var order = await action();
-            return order is null ? NotFound(new { message = "Order or item was not found." }) : Ok(order);
+            var success = await orderService.AddOrderItemAsync(id, dto, ct);
+            if (!success)
+            {
+                return NotFound();
+            }
+
+            return Ok();
         }
-        catch (OrderConflictException ex) { return Conflict(new { message = ex.Message }); }
-        catch (Exception ex) when (IsConcurrentWrite(ex))
-        { return Conflict(new { message = "Order changed during saving. Reload it before retrying." }); }
-        catch (ValidationException ex) { return BadRequest(new { message = ex.Message }); }
-        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
-    }
 
-    private static bool IsConcurrentWrite(Exception ex) => ex is DbUpdateConcurrencyException ||
-        ex is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.UniqueViolation } ||
-        (ex.InnerException is not null && IsConcurrentWrite(ex.InnerException));
+        [HttpDelete("{id:int}/items/{itemId:int}")]
+        [HasPermission(Permissions.OrdersEdit)]
+        public async Task<IActionResult> RemoveOrderItem(int id, int itemId, CancellationToken ct = default)
+        {
+            var success = await orderService.RemoveOrderItemAsync(id, itemId, ct);
+            if (!success)
+            {
+                return NotFound();
+            }
 
-    private int GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return int.TryParse(userIdClaim, out var userId) ? userId : 1;
+            return NoContent();
+        }
+
+        private int GetCurrentUserId()
+        {
+            var value = User.FindFirst(AppClaims.Subject)?.Value;
+            return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id)
+                ? id
+                : throw new InvalidOperationException("Authenticated request without a valid subject claim.");
+        }
     }
 }
