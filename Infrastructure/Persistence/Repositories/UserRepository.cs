@@ -3,19 +3,41 @@ using Application.Dtos.Auth;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace Infrastructure.Persistence.Repositories;
-
-public sealed class UserRepository(AppDbContext db) : IUserRepository
+namespace Infrastructure.Persistence.Repositories
 {
-    public Task<AuthUser?> GetByLoginAsync(string login, CancellationToken ct = default) =>
-        Project(db.Set<AppUserEntity>().Where(u => u.Login == login)).FirstOrDefaultAsync(ct);
+    public class UserRepository(AppDbContext context) : IUserRepository
+    {
+        public async Task<AppUserEntity?> GetByLoginAsync(string normalizedLogin, CancellationToken ct = default)
+        {
+            return await context.Set<AppUserEntity>()
+                .FirstOrDefaultAsync(u => u.Login == normalizedLogin, ct);
+        }
 
-    public Task<AuthUser?> GetByIdAsync(int id, CancellationToken ct = default) =>
-        Project(db.Set<AppUserEntity>().Where(u => u.Id == id)).FirstOrDefaultAsync(ct);
+        public async Task<bool> LoginExistsAsync(string normalizedLogin, CancellationToken ct = default)
+        {
+            return await context.Set<AppUserEntity>()
+                .AsNoTracking()
+                .AnyAsync(u => u.Login == normalizedLogin, ct);
+        }
 
-    // Filter on the ENTITY first, then project. EF cannot translate a Where on members of a constructor-built record.
-    private IQueryable<AuthUser> Project(IQueryable<AppUserEntity> users) =>
-        from u in users.AsNoTracking()
-        join r in db.Set<RoleEntity>().AsNoTracking() on u.RoleId equals r.Id
-        select new AuthUser(u.Id, u.Login, u.PasswordHash, u.FullName, u.IsActive, r.Code);
+        public async Task<RoleEntity?> GetRoleByCodeAsync(string roleCode, CancellationToken ct = default)
+        {
+            return await context.Set<RoleEntity>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Code == roleCode, ct);
+        }
+
+        public async Task AddAsync(AppUserEntity user, CancellationToken ct = default)
+        {
+            await context.Set<AppUserEntity>().AddAsync(user, ct);
+        }
+
+        public async Task<AuthUserInfo?> GetActiveAuthInfoAsync(int userId, CancellationToken ct = default)
+        {
+            return await (from u in context.Set<AppUserEntity>().AsNoTracking()
+                          join r in context.Set<RoleEntity>().AsNoTracking() on u.RoleId equals r.Id
+                          where u.Id == userId && u.IsActive
+                          select new AuthUserInfo(u.Id, r.Code)).FirstOrDefaultAsync(ct);
+        }
+    }
 }
