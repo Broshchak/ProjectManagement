@@ -1,35 +1,58 @@
-using System.Security.Claims;
+using System.Globalization;
 using Application.Common.Interfaces;
 using Application.Dtos.Auth;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Application.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
-namespace WebApi.Controllers;
-
-[ApiController]
-[Route("api/auth")]
-public sealed class AuthController(IAuthService auth) : ControllerBase
+namespace WebApi.Controllers
 {
-    [HttpPost("login")]
-    [AllowAnonymous]
-    [ProducesResponseType<LoginResponseDto>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> Login(LoginRequestDto request, CancellationToken ct)
+    [Route("api/auth")]
+    [ApiController]
+    public class AuthController(IAuthService authService, IPermissionProvider permissions) : ControllerBase
     {
-        var result = await auth.LoginAsync(request, ct);
-        return result is null ? Unauthorized(new ProblemDetails { Title = "Invalid credentials." }) : Ok(result);
-    }
+        [HttpPost("login")]
+        [AllowAnonymous]
+        [EnableRateLimiting("login")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        public async Task<IActionResult> Login([FromBody] LoginDto dto, CancellationToken ct)
+        {
+            var tokens = await authService.LoginAsync(dto, ct);
+            return tokens is null ? InvalidCredentials() : Ok(tokens);
+        }
 
-    [HttpGet("me")]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    [ProducesResponseType<CurrentUserDto>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> Me(CancellationToken ct)
-    {
-        var raw = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        if (!int.TryParse(raw, out var userId))
-            return Unauthorized();
+        [HttpPost("refresh")]
+        [AllowAnonymous]
+        [EnableRateLimiting("refresh")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        public async Task<IActionResult> Refresh([FromBody] RefreshTokenDto dto, CancellationToken ct)
+        {
+            var tokens = await authService.RefreshAsync(dto.RefreshToken, ct);
+            return tokens is null ? InvalidCredentials() : Ok(tokens);
+        }
 
-        var me = await auth.GetCurrentUserAsync(userId, ct);
-        return me is null ? Unauthorized() : Ok(me);
+        [HttpPost("logout")]
+        [AllowAnonymous]
+        [EnableRateLimiting("refresh")]
+        public async Task<IActionResult> Logout([FromBody] RefreshTokenDto dto, CancellationToken ct)
+        {
+            await authService.LogoutAsync(dto.RefreshToken, ct);
+            return NoContent();
+        }
+
+        [HttpGet("me")]
+        public async Task<IActionResult> Me(CancellationToken ct)
+        {
+            var userId = int.Parse(User.FindFirst(AppClaims.Subject)!.Value, CultureInfo.InvariantCulture);
+            var role = User.FindFirst(AppClaims.Role)!.Value;
+            var granted = await permissions.GetPermissionsAsync(role, ct);
+
+            return Ok(new CurrentUserDto(userId, role, granted));
+        }
+
+        // One generic answer for every failure: wrong password, unknown login, inactive user, bad token.
+        private ObjectResult InvalidCredentials() =>
+            Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Invalid credentials.");
     }
 }
