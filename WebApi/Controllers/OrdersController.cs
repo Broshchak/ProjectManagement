@@ -2,14 +2,17 @@ using System.Globalization;
 using Application.Common.Interfaces;
 using Application.Dtos.Orders;
 using Application.Security;
+using Application.Services;
 using Microsoft.AspNetCore.Mvc;
+using Orders.Workflow;
 using WebApi.Security;
 
 namespace WebApi.Controllers;
 
 [Route("api/orders")]
 [ApiController]
-public sealed class OrdersController(IOrderService orders, IOrderEditingService editing, IPermissionProvider permissions) : ControllerBase
+public sealed class OrdersController(IOrderService orders, IOrderEditingService editing, OrderWorkflowService workflow,
+    IPermissionProvider permissions) : ControllerBase
 {
     [HttpGet]
     [HasPermission(Permissions.OrdersRead)]
@@ -46,7 +49,19 @@ public sealed class OrdersController(IOrderService orders, IOrderEditingService 
     [HttpPost("{id:int}/status")]
     [HasPermission(Permissions.OrdersEdit)]
     public async Task<IActionResult> ChangeOrderStatus(int id, ChangeOrderStatusDto dto, CancellationToken ct) =>
-        await editing.ChangeStatusAsync(id, dto, CurrentUserId, ct) is { } order ? Ok(await FilterCustomerAsync(order, ct)) : NotFound();
+        await workflow.ExecuteAsync(id, dto.Action, CurrentUserId, CurrentRole, null, ct) is { } order
+            ? Ok(await FilterCustomerAsync(order, ct)) : NotFound();
+
+    [HttpGet("{id:int}/transitions")]
+    [HasPermission(Permissions.OrdersRead)]
+    public async Task<IActionResult> GetTransitions(int id, CancellationToken ct) =>
+        await workflow.GetActionsAsync(id, CurrentRole, ct) is { } actions ? Ok(actions) : NotFound();
+
+    [HttpPost("{id:int}/transitions/{code}")]
+    [HasPermission(Permissions.OrdersRead)]
+    public async Task<IActionResult> ExecuteTransition(int id, string code, ExecuteWorkflowTransition request, CancellationToken ct) =>
+        await workflow.ExecuteAsync(id, code, CurrentUserId, CurrentRole, request, ct) is { } order
+            ? Ok(await FilterCustomerAsync(order, ct)) : NotFound();
 
     [HttpPut("{id:int}")]
     [HasPermission(Permissions.OrdersEdit)]
@@ -64,4 +79,6 @@ public sealed class OrdersController(IOrderService orders, IOrderEditingService 
 
     private int CurrentUserId =>
         int.Parse(User.FindFirst(AppClaims.Subject)!.Value, CultureInfo.InvariantCulture);
+
+    private string CurrentRole => User.FindFirst(AppClaims.Role)!.Value;
 }

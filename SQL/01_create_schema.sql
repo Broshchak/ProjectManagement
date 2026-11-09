@@ -2,6 +2,7 @@ DROP VIEW IF EXISTS v_order_totals;
 DROP VIEW IF EXISTS v_order_items_details;
 DROP VIEW IF EXISTS v_products_current;
 
+DROP TABLE IF EXISTS order_workflow;
 DROP TABLE IF EXISTS order_status_history;
 DROP TABLE IF EXISTS order_items;
 DROP TABLE IF EXISTS orders;

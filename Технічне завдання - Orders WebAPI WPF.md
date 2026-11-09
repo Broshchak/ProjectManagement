@@ -276,11 +276,7 @@ Telegram-доступ зберігається в app_users через telegram_
 | RefreshSession / `refresh_sessions` | користувач/сесія, хеш токена, строк дії, ротація/відкликання |
 | TelegramLinkToken / `telegram_link_tokens` | користувач, хеш токена, строк дії, одноразове споживання |
 | RolePermission / `role_permissions` | роль, відомий код дозволу; унікальна пара |
-| Workflow / `workflow_settings` | revision опублікованої конфігурації |
-| WorkflowDraft / `workflow_drafts` | чернетка, версія, автор, час зміни |
-| OrderTransition / `order_transitions` | початковий/кінцевий стани, назва дії, активність |
-| TransitionRole / `order_transition_roles` | перехід, дозволена роль |
-| TransitionRule / `order_transition_rules` | перехід, код правила, типізовані параметри, порядок |
+| Workflow / `order_workflow` | один запис з опублікованою конфігурацією та чернеткою, у кожної своя версія. Документи містять стани, переходи, коди ролей і правила з каталогу. Замовлення й історія посилаються на `order_statuses`. |
 | ReportTemplate / `report_templates` | назва, тип джерела, версійовані JSON-налаштування, автор, активність, версія запису |
 | OrderShipment / `order_shipments` | замовлення, ref провайдера, номер, статус, Test-режим, результат операції, час перевірки |
 | OrderPayment / `order_payments` | замовлення, унікальні merchant/provider ids, сума, валюта, статус, Test-режим, версія замовлення |
@@ -398,8 +394,8 @@ WPF-клієнт повинен підтримувати цей контракт
 | --- | --- |
 | Ролі — тільки Admin | GET/POST /api/roles; PUT /api/roles/{id}; PUT /api/roles/{id}/active; DELETE /api/roles/{id} |
 | Дозволи | GET /api/permissions; GET /api/roles/permissions; PUT /api/roles/{roleId}/permissions — Admin; GET /api/auth/me/permissions — поточний користувач |
-| Workflow | GET /api/workflow; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
-| Переходи | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{transitionId} |
+| Workflow | GET /api/workflow; GET /api/workflow/roles; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
+| Переходи | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{code} |
 | Звіти | CRUD /api/report-templates; POST /api/reports/pdf |
 | Доставка | GET /api/delivery/cities; GET /api/delivery/warehouses; GET/POST /api/orders/{id}/shipment; POST /api/orders/{id}/shipment/refresh |
 | Оплата | POST/GET /api/orders/{id}/payments; POST /api/payments/{id}/refresh; POST /api/payments/liqpay/callback |
@@ -413,7 +409,7 @@ API повертає DTO; неавтентифікований запит — 40
 - Зберегти вхід, списки, деталі та форми замовлень/товарів/покупців/користувачів відповідно до прав.
 - «Ролі й доступ» тільки для Admin: створення, назва, блокування/розблокування, видалення з причинами обмежень, матриця видимості. Системні й заблоковані ролі позначаються явно.
 - «Налаштування workflow» тільки для Admin/Director: списки/форми станів і переходів, ролі, правила, збереження чернетки, перевірка, публікація. Конфлікт не перезаписує чужі зміни; незбережені зміни не губляться мовчки.
-- Drag-and-drop починається після порогу руху миші; дозволені колонки підсвічуються. Drop у поточну колонку — no-op, поза дошкою — скасування. Порожня колонка є ціллю. Для кількох переходів у той самий стан потрібен вибір; для обов'язкового коментаря — діалог.
+- Перетягування починається після порогу руху миші та завантаження коду стану, версій і дозволених дій. Дошка підсвічує доступні колонки. Drop у поточну колонку — no-op, поза дошкою — скасування. Порожня колонка є ціллю. Для кількох переходів у той самий стан потрібен вибір; для обов'язкового коментаря — діалог.
 - Виконується один запит на перенесення; повтор для картки блокується, переміщення завершується після успіху API. Версія відповідає даним, які користувач бачив до drag. На timeout перечитати стан/історію; на 409 оновити картку. Оновлюються суми, лічильники й фільтри. Зміна стану кнопкою зберігається; ручне сортування карток не входить у цей етап.
 
 ### Звіти

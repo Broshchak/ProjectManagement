@@ -15,7 +15,7 @@ public sealed class ReportQueries(AppDbContext db) : IReportQueries
             select new OrderReportItemDto(order.Id, order.OrderNumber, customer.FullName, status.Code, status.Name,
                 db.Set<OrderItemEntity>().Where(item => item.OrderId == order.Id)
                     .Sum(item => (decimal?)(item.Quantity * item.UnitPrice)) ?? 0m,
-                order.CreatedAt)).ToListAsync(ct);
+                order.CreatedAt, status.Category)).ToListAsync(ct);
 
     public async Task<IReadOnlyList<ProductSalesReportItemDto>> GetProductSalesAsync(DateTime? fromUtc, DateTime? toUtc, CancellationToken ct = default)
     {

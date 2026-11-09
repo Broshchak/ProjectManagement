@@ -4,11 +4,12 @@ using System.Net.Http.Json;
 using System.Net;
 using System.Text.Json;
 using System.Globalization;
+using Orders.Workflow;
 using WpfClient.Models;
 
 namespace WpfClient.Services;
 
-public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient, IAuthApiClient, IManagementApiClient, IOrderEditingApiClient, ITelegramLinkApiClient, IRoleAccessApiClient
+public sealed partial class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient, IAuthApiClient, IManagementApiClient, IOrderEditingApiClient, ITelegramLinkApiClient, IRoleAccessApiClient, IWorkflowApiClient
 {
     private readonly object _sessionLock = new();
     private readonly SemaphoreSlim _refreshGate = new(1);
@@ -404,6 +405,8 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             CreatedAt = order.CreatedAt,
             Customer = order.CustomerFullName,
             Status = order.StatusCode,
+            StatusName = order.StatusName,
+            StatusCategory = order.StatusCategory,
             IsStatusFinal = order.IsStatusFinal,
             CurrencyCode = order.CurrencyCode,
             Total = order.TotalAmount
@@ -421,6 +424,9 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             CreatedAt = order.CreatedAt,
             Customer = order.CustomerFullName,
             Status = order.StatusCode,
+            StatusName = order.StatusName,
+            CanEditItems = order.CanEditItems,
+            StatusCategory = order.StatusCategory,
             IsStatusFinal = order.IsStatusFinal,
             CurrencyCode = order.CurrencyCode,
             Total = order.TotalAmount,
@@ -443,7 +449,9 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             StatusHistory = order.StatusHistory.Select(history => new OrderStatusHistoryItem
             {
                 PreviousStatus = history.PreviousStatusCode ?? "-",
+                PreviousStatusName = history.PreviousStatusName,
                 NewStatus = history.NewStatusCode,
+                NewStatusName = history.NewStatusName,
                 ChangedBy = history.ChangedByUserFullName,
                 ChangedAt = history.ChangedAt,
                 Comment = history.Comment
@@ -633,6 +641,8 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         public string OrderNumber { get; set; } = string.Empty;
 
         public string StatusCode { get; set; } = string.Empty;
+        public string? StatusName { get; set; }
+        public string? StatusCategory { get; set; }
         public bool IsStatusFinal { get; set; }
         public string CurrencyCode { get; set; } = "UAH";
 
@@ -658,6 +668,9 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         public string OrderNumber { get; set; } = string.Empty;
 
         public string StatusCode { get; set; } = string.Empty;
+        public string? StatusName { get; set; }
+        public bool? CanEditItems { get; set; }
+        public string? StatusCategory { get; set; }
         public bool IsStatusFinal { get; set; }
         public string CurrencyCode { get; set; } = "UAH";
 
@@ -808,8 +821,10 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
     private sealed class OrderStatusHistoryResponse
     {
         public string? PreviousStatusCode { get; set; }
+        public string? PreviousStatusName { get; set; }
 
         public string NewStatusCode { get; set; } = string.Empty;
+        public string? NewStatusName { get; set; }
 
         public string ChangedByUserFullName { get; set; } = string.Empty;
 

@@ -5,7 +5,8 @@ using Domain.Entities;
 
 namespace Application.Services
 {
-    public class OrderService(IOrderRepository orderRepository, IUnitOfWork unitOfWork) : IOrderService
+    public class OrderService(IOrderRepository orderRepository, IProductRepository products,
+        IUnitOfWork unitOfWork, OrderWorkflowService workflow) : IOrderService
     {
         public async Task<IEnumerable<OrderSummaryDto>> GetOrdersAsync(CancellationToken ct = default)
         {
@@ -17,13 +18,17 @@ namespace Application.Services
             return await orderRepository.GetDetailByIdAsync(id, ct);
         }
 
-        public async Task<OrderDetailDto> CreateOrderAsync(CreateOrderDto dto, int currentUserId, CancellationToken ct = default)
+        public Task<OrderDetailDto> CreateOrderAsync(CreateOrderDto dto, int currentUserId, CancellationToken ct = default) =>
+            unitOfWork.InTransactionAsync(token => CreateAsync(dto, currentUserId, token), ct);
+
+        private async Task<OrderDetailDto> CreateAsync(CreateOrderDto dto, int currentUserId, CancellationToken ct)
         {
+            var initialCode = await workflow.GetInitialStateAsync(ct);
             if (!await orderRepository.CustomerExistsAsync(dto.CustomerId, ct))
                 throw new ValidationException("Customer was not found.");
-            if (dto.Items == null || dto.Items.Count == 0)
+            if (dto.Items == null || dto.Items.Count == 0 || dto.Items.Any(i => i.Quantity <= 0))
             {
-                throw new ValidationException("An order must contain at least one item.");
+                throw new ValidationException("An order must contain at least one item with a positive quantity.");
             }
 
             var duplicateProductIds = dto.Items
@@ -37,18 +42,20 @@ namespace Application.Services
                 throw new ValidationException($"Duplicate products detected in order request for Product IDs: {string.Join(", ", duplicateProductIds)}.");
             }
 
-            var initialStatus = await orderRepository.GetStatusByCodeAsync("NewOrder", ct)
-                ?? throw new InvalidOperationException("Initial order status 'NewOrder' was not found.");
+            var initialStatus = await orderRepository.GetStatusByCodeAsync(initialCode, ct)
+                ?? throw new InvalidOperationException("The initial workflow state was not found.");
 
-            var productIds = dto.Items.Select(i => i.ProductId).Distinct().ToList();
-            var priceMap = await orderRepository.GetProductPricesAsync(productIds, ct);
+            var availability = (await products.GetAvailabilityAsync(dto.Items.Select(i => i.ProductId).ToArray(), ct))
+                .ToDictionary(product => product.ProductId);
 
-            foreach (var productId in productIds)
+            foreach (var item in dto.Items)
             {
-                if (!priceMap.ContainsKey(productId))
-                {
-                    throw new ValidationException($"Price for Product ID {productId} was not found.");
-                }
+                if (!availability.TryGetValue(item.ProductId, out var product) || !product.IsActive)
+                    throw new ValidationException($"Product {item.ProductId} is unavailable.");
+                if (product.Stock is not int stock || item.Quantity > stock)
+                    throw new ValidationException($"Insufficient stock for product {item.ProductId}.");
+                if (product.Price is null or <= 0)
+                    throw new ValidationException($"Price for product {item.ProductId} was not found.");
             }
 
             var order = new OrderEntity
@@ -69,7 +76,7 @@ namespace Application.Services
                     Order = order,
                     ProductId = itemDto.ProductId,
                     Quantity = itemDto.Quantity,
-                    UnitPrice = priceMap[itemDto.ProductId]
+                    UnitPrice = availability[itemDto.ProductId].Price!.Value
                 };
                 await orderRepository.AddItemAsync(item, ct);
             }
@@ -120,71 +127,5 @@ namespace Application.Services
             return true;
         }
 
-        public async Task<OrderDetailDto?> ChangeOrderStatusAsync(int orderId, ChangeOrderStatusDto dto, int currentUserId, CancellationToken ct = default)
-        {
-            if (string.IsNullOrWhiteSpace(dto.Action))
-            {
-                throw new ValidationException("Status action is required.");
-            }
-
-            var order = await orderRepository.GetByIdAsync(orderId, ct);
-            if (order == null) return null;
-
-            var currentStatus = await orderRepository.GetStatusByIdAsync(order.StatusId, ct);
-            if (currentStatus == null)
-            {
-                throw new InvalidOperationException("Current order status was not found.");
-            }
-
-            if (currentStatus.IsFinal)
-            {
-                throw new ValidationException($"Order status '{currentStatus.Code}' is final and cannot be changed.");
-            }
-
-            var nextStatusCode = GetNextStatusCode(currentStatus.Code, dto.Action);
-            var nextStatus = await orderRepository.GetStatusByCodeAsync(nextStatusCode, ct)
-                ?? throw new InvalidOperationException($"Order status '{nextStatusCode}' was not found.");
-
-            order.StatusId = nextStatus.Id;
-            await orderRepository.AddStatusHistoryAsync(new OrderStatusHistoryEntity
-            {
-                OrderId = order.Id,
-                PreviousStatusId = currentStatus.Id,
-                NewStatusId = nextStatus.Id,
-                ChangedByUserId = currentUserId,
-                Comment = GetActionComment(dto.Action)
-            }, ct);
-
-            await unitOfWork.SaveChangesAsync(ct);
-            return await orderRepository.GetDetailByIdAsync(order.Id, ct);
-        }
-
-        private static string GetNextStatusCode(string currentStatus, string action)
-        {
-            return (currentStatus, action.Trim().ToLowerInvariant()) switch
-            {
-                ("NewOrder", "register") => "Registered",
-                ("NewOrder", "cancel") => "Cancelled",
-                ("Registered", "grant") => "Granted",
-                ("Registered", "cancel") => "Cancelled",
-                ("Granted", "ship") => "Shipped",
-                ("Granted", "cancel") => "Cancelled",
-                ("Shipped", "invoice") => "Invoiced",
-                _ => throw new ValidationException($"Action '{action}' is not available for current order status '{currentStatus}'.")
-            };
-        }
-
-        private static string GetActionComment(string action)
-        {
-            return action.ToLowerInvariant() switch
-            {
-                "register" => "Registered for processing",
-                "grant" => "Approved",
-                "ship" => "Sent to customer",
-                "invoice" => "Invoice issued",
-                "cancel" => "Cancelled",
-                _ => "Status changed"
-            };
-        }
     }
 }

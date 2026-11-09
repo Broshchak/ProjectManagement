@@ -8,9 +8,23 @@ public sealed class KanbanColumn : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string Title => OrderStatusNames.ToText(Status);
+    public string Title => OrderStatusNames.ToText(Status, Name);
+    public string? Name { get; init; }
+    public string Color { get; init; } = "#255C99";
 
     public string Status { get; init; } = string.Empty;
+
+    private bool _isDropTarget;
+    public bool IsDropTarget
+    {
+        get => _isDropTarget;
+        set
+        {
+            if (_isDropTarget == value) return;
+            _isDropTarget = value;
+            OnPropertyChanged();
+        }
+    }
 
     public ObservableCollection<OrderListItem> Orders { get; } = [];
 

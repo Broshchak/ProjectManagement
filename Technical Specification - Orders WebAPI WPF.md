@@ -169,11 +169,7 @@ Seed data must include:
 | RefreshSession / refresh_sessions | User/session, token hash, expiry, rotation and revocation |
 | TelegramLinkToken / telegram_link_tokens | User, token hash, expiry and one-time consumption |
 | RolePermission / role_permissions | Role and known permission code, unique pair |
-| Workflow / workflow_settings | Published revision |
-| WorkflowDraft / workflow_drafts | Draft document, version, editor, timestamp |
-| OrderTransition / order_transitions | Source/target states, action label, active flag |
-| TransitionRole / order_transition_roles | Transition and permitted role |
-| TransitionRule / order_transition_rules | Transition, known rule code, typed parameters, evaluation order |
+| Workflow / order_workflow | One record with a published definition and a draft, each with its own version. Both documents contain states, transitions, role codes and catalog rule codes. Orders and history reference order_statuses. |
 | ReportTemplate / report_templates | Name, dataset, versioned JSON layout, author, activity, record version |
 | OrderShipment / order_shipments | Order, provider reference, shipment number/status, Test mode, operation result and last check |
 | OrderPayment / order_payments | Order, unique merchant/provider identifiers, amount, currency, status, Test mode and order version |
@@ -275,8 +271,8 @@ Keep authentication, current user, order/item/product/customer/user operations a
 | --- | --- |
 | Roles — Admin only | GET/POST /api/roles; PUT /api/roles/{id}; PUT /api/roles/{id}/active; DELETE /api/roles/{id} |
 | Permissions | GET /api/permissions; GET /api/roles/permissions; PUT /api/roles/{roleId}/permissions — Admin; GET /api/auth/me/permissions — current user |
-| Workflow | GET /api/workflow; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
-| Transitions | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{transitionId} |
+| Workflow | GET /api/workflow; GET /api/workflow/roles; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
+| Transitions | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{code} |
 | Reports | CRUD /api/report-templates; POST /api/reports/pdf |
 | Delivery | GET /api/delivery/cities; GET /api/delivery/warehouses; GET/POST /api/orders/{id}/shipment; POST /api/orders/{id}/shipment/refresh |
 | Payments | POST/GET /api/orders/{id}/payments; POST /api/payments/{id}/refresh; POST /api/payments/liqpay/callback |
@@ -319,7 +315,7 @@ The WPF application is a thin API client with login, overview, order list/detail
 
 Build navigation from current effective permissions. Hide protected data and actions, refresh permissions on navigation refresh/403, close inaccessible sections and clear their data. API enforcement remains mandatory.
 
-For drag-and-drop, start after the mouse movement threshold and use the order version visible before dragging. Highlight allowed targets; support empty columns, cancel outside the board and no-op in the same column. If several transitions lead to one target, ask which action to use; collect mandatory comments. Send one request and block duplicate actions for that card; complete the visual move only after server success. On timeout reread state/history; on 409 refresh current data. Refresh counts, totals and filters; ignore late responses from previous sessions. Preserve button-based transitions. Manual within-column ordering is outside scope.
+Start dragging after the mouse movement threshold and fetch the order state, available actions and versions before the gesture begins. Refresh the board if the order state or workflow revision has changed. Highlight allowed targets; support empty columns, cancel outside the board and no-op in the same column. If several transitions lead to one target, ask which action to use; collect mandatory comments. Send one request and block duplicate actions for that card; complete the visual move only after server success. On timeout reread state/history; on 409 refresh current data. Refresh counts, totals and filters; ignore late responses from previous sessions. Preserve button-based transitions. Manual within-column ordering is outside scope.
 
 Keep workflow, roles and report-builder logic in separate small view models rather than extending MainViewModel indefinitely.
 

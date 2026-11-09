@@ -41,12 +41,6 @@ namespace Infrastructure.Persistence.Repositories
                 .FirstOrDefaultAsync(s => s.Code == code, ct);
         }
 
-        public async Task<OrderStatusEntity?> GetStatusByIdAsync(int id, CancellationToken ct = default)
-        {
-            return await context.Set<OrderStatusEntity>()
-                .FirstOrDefaultAsync(s => s.Id == id, ct);
-        }
-
         public async Task<decimal?> GetProductPriceAsync(int productId, CancellationToken ct = default)
         {
             var priceEntity = await context.Set<ProductPriceEntity>()
@@ -77,7 +71,8 @@ namespace Infrastructure.Persistence.Repositories
                                where oi.OrderId == o.Id
                                select pp.CurrencyCode).FirstOrDefault() ?? "UAH",
                               o.Comment,
-                              o.CreatedAt
+                              o.CreatedAt,
+                              s.Category
                           )).ToListAsync(ct);
         }
 
@@ -94,6 +89,8 @@ namespace Infrastructure.Persistence.Repositories
                                        StatusCode = s.Code,
                                        StatusName = s.Name,
                                        s.IsFinal,
+                                       s.CanEditItems,
+                                       s.Category,
                                        o.CustomerId,
                                        CustomerFullName = c.FullName,
                                        CustomerPhone = c.Phone,
@@ -161,16 +158,10 @@ namespace Infrastructure.Persistence.Repositories
                 orderData.CreatedAt,
                 orderData.UpdatedAt,
                 items,
-                history
+                history,
+                orderData.CanEditItems,
+                orderData.Category
             );
-        }
-
-        public async Task<Dictionary<int, decimal>> GetProductPricesAsync(IEnumerable<int> productIds, CancellationToken ct = default)
-        {
-            return await context.Set<ProductPriceEntity>()
-                .AsNoTracking()
-                .Where(p => productIds.Contains(p.ProductId))
-                .ToDictionaryAsync(p => p.ProductId, p => p.Price, ct);
         }
 
         public async Task AddAsync(OrderEntity order, CancellationToken ct = default)

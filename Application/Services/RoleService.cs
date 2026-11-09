@@ -7,7 +7,7 @@ using Domain.Entities;
 
 namespace Application.Services;
 
-public sealed class RoleService(IRoleRepository roles, IUnitOfWork unitOfWork)
+public sealed class RoleService(IRoleRepository roles, IUnitOfWork unitOfWork, OrderWorkflowService workflow)
 {
     public async Task<IReadOnlyList<RoleDto>> ListAsync(CancellationToken ct) =>
         (await roles.ListAsync(ct)).Select(Map).ToArray();
@@ -64,7 +64,10 @@ public sealed class RoleService(IRoleRepository roles, IUnitOfWork unitOfWork)
             role.IsActive = active;
         }, ct);
 
-    public async Task<bool> DeleteAsync(int id, long version, CancellationToken ct)
+    public Task<bool> DeleteAsync(int id, long version, CancellationToken ct) =>
+        unitOfWork.InTransactionAsync(token => DeleteRoleAsync(id, version, token), ct);
+
+    private async Task<bool> DeleteRoleAsync(int id, long version, CancellationToken ct)
     {
         var role = await roles.FindAsync(id, ct);
         if (role is null) return false;
@@ -73,6 +76,8 @@ public sealed class RoleService(IRoleRepository roles, IUnitOfWork unitOfWork)
             throw new DataConflictException("System roles cannot be deleted.");
         if (await roles.HasUsersAsync(id, ct))
             throw new DataConflictException("This role is assigned to users, including inactive users.");
+        if (await workflow.ReferencesRoleAsync(role.Code, ct))
+            throw new DataConflictException("This role is used by a workflow transition or draft.");
         roles.Delete(role);
         await unitOfWork.SaveChangesAsync(ct);
         return true;

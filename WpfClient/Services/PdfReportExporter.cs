@@ -125,7 +125,7 @@ public static class PdfReportExporter
                 AddSmallMetric(table, T["NewOrders"], summary.NewOrders);
                 AddSmallMetric(table, T["InProgress"], summary.OrdersInProgress);
                 AddSmallMetric(table, T["Shipped"], summary.ShippedOrders);
-                AddSmallMetric(table, T["Invoiced"], summary.InvoicedOrders);
+                AddSmallMetric(table, T["WorkflowCategoryCompleted"], summary.InvoicedOrders);
                 AddSmallMetric(table, T["Cancelled"], summary.CancelledOrders);
             });
 

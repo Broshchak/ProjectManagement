@@ -20,6 +20,7 @@ public sealed record NavigationItem(string Key, string TitleKey, UserControl Vie
         "Products" => "◇",
         "Users" => "◉",
         "Reports" => "≡",
+        "Workflow" => "⇄",
         _ => "•"
     };
 }

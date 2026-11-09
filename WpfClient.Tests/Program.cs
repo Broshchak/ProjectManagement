@@ -10,6 +10,8 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Markup;
 using System.Xml.Linq;
+using System.Windows.Controls;
+using Orders.Workflow;
 using WpfClient.Views;
 using WpfClient;
 using WpfClient.Models;
@@ -335,8 +337,10 @@ internal static class Program
                     "/api/auth/me/permissions" => revoked
                         ? Json("""{"role":"Custom","revision":2,"permissions":["products.read"]}""")
                         : Json("""{"role":"Custom","revision":1,"permissions":["orders.read","reports.read","products.read"]}"""),
+                    "/api/workflow" => Json("""{"revision":1,"states":[]}"""),
                     "/api/orders" => Json(Orders),
                     "/api/orders/1" => Json(Detail(1)),
+                    "/api/orders/1/transitions" => Json("""{"workflowRevision":1,"orderVersion":"","actions":[]}"""),
                     "/api/products" => Json(Products),
                     "/api/reports/orders" when revoked => Json("{}", HttpStatusCode.Forbidden),
                     _ => Reports(path)
@@ -384,6 +388,43 @@ internal static class Program
                 editor.SelectedRole?.Version == 4, "Wrong save payload or stale revision");
         });
 
+        await Test("published workflow drives WPF columns, filters and transition requests", async () =>
+        {
+            using Fake server = new(r =>
+            {
+                string path = r.RequestUri!.AbsolutePath;
+                return path switch
+                {
+                    "/api/auth/login" => Json("""{"accessToken":"access","accessTokenExpiresAt":"2099-10-25T12:00:00Z"}"""),
+                    "/api/auth/me" => Json("""{"id":42,"login":"director","fullName":"Director","role":"Director","permissions":["orders.read","orders.edit","board.read","workflow.manage"]}"""),
+                    "/api/auth/me/permissions" => Json("""{"role":"Director","revision":1,"permissions":["orders.read","orders.edit","board.read","workflow.manage"]}"""),
+                    "/api/workflow" => Json("""{"revision":8,"states":[{"code":"Review","name":"На перевірці","sortOrder":1,"color":"#536BC5"}]}"""),
+                    "/api/orders" => Json("""[{"id":1,"orderNumber":"O-1","statusCode":"Review","statusName":"На перевірці"}]"""),
+                    "/api/orders/1" => Json("""{"id":1,"version":"order-version","statusCode":"Review","statusName":"На перевірці","canEditItems":true}"""),
+                    "/api/orders/1/transitions" => Json("""{"workflowRevision":8,"orderVersion":"order-version","actions":[{"code":"approve","name":"Погодити","targetStatus":"Done","requiresComment":true}]}"""),
+                    "/api/orders/1/transitions/approve" => Json("{}"),
+                    _ => Json("{}", HttpStatusCode.NotFound)
+                };
+            });
+            var vm = new MainViewModel(new ApiClientSettings { UseMockData = false }, server.Client) { LoginName = "director" };
+            Check(await vm.SignInAsync("password"), "Workflow sign-in failed");
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(vm.NavigationItems.Any(item => item.Key == "Workflow") &&
+                vm.KanbanColumns.Single().Title == "На перевірці" && vm.KanbanColumns.Single().Orders.Count == 1 &&
+                vm.OrderStatusFilterOptions.Any(option => option.Code == "Review") && vm.IsSelectedOrderEditable,
+                "Workflow configuration did not reach WPF");
+            var action = vm.AvailableActions.Single();
+            vm.ChangeOrderStatusCommand.Execute(action);
+            Check(!server.Paths.Contains("/api/orders/1/transitions/approve"), "Comment was not required");
+            vm.TransitionComment = "Checked";
+            vm.ChangeOrderStatusCommand.Execute(action);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            string? body = server.Bodies[server.Paths.IndexOf("/api/orders/1/transitions/approve")];
+            Check(body is not null && body.Contains("\"expectedWorkflowRevision\":8") &&
+                body.Contains("\"expectedVersion\":\"order-version\"") && body.Contains("\"comment\":\"Checked\""),
+                "Transition request did not use visible order/workflow versions and the comment");
+        });
+
         await Test("role matrix exposes Director product management and Manager product view", () =>
         {
             using Fake server = new(_ => Json("[]"));
@@ -394,6 +435,104 @@ internal static class Program
             Set(director, "CurrentRoleName", "Admin");
             Check(!director.CanManageUsers, "Real user editor still writes demo users");
             return Task.CompletedTask;
+        });
+
+        await Test("Kanban sends one versioned move and reconciles conflicts and uncertain replies", async () =>
+        {
+            const string actionPath = "/api/orders/1/transitions";
+            const string detailPath = "/api/orders/1";
+            string state = "NewOrder";
+            string version = "v1";
+            long workflowRevision = 12;
+            bool detailsUnavailable = false;
+            int posts = 0;
+            var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var initialActions = new WorkflowAction[]
+            {
+                new("review", "На перевірку", "Review", true),
+                new("quick", "Швидка перевірка", "Review", false),
+                new("invalid", "Same column", "NewOrder", false)
+            };
+            string OrderJson() => $$"""{"id":1,"orderNumber":"O-1","version":"{{version}}","statusCode":"{{state}}","statusCategory":"InProgress","totalAmount":40,"statusHistory":[]}""";
+            using Fake server = new(async (request, _) =>
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                switch (path)
+                {
+                    case "/api/auth/login":
+                        return Json("""{"accessToken":"access","accessTokenExpiresAt":"2099-10-25T12:00:00Z"}""");
+                    case "/api/auth/me":
+                        return Json("""{"id":42,"login":"operator","fullName":"Operator","role":"Custom","permissions":["orders.read","board.read"]}""");
+                    case "/api/auth/me/permissions":
+                        return Json("""{"role":"Custom","revision":1,"permissions":["orders.read","board.read"]}""");
+                    case "/api/workflow":
+                        return Json($$"""{"revision":{{workflowRevision}},"states":[{"code":"NewOrder","name":"New order"},{"code":"Review","name":"На перевірці"},{"code":"Done","name":"Готово"}]}""");
+                    case "/api/orders":
+                        return Json("[" + OrderJson() + "]");
+                    case detailPath:
+                        return detailsUnavailable ? Json("{}", HttpStatusCode.ServiceUnavailable) : Json(OrderJson());
+                    case actionPath:
+                        var actions = state switch
+                        {
+                            "NewOrder" => initialActions,
+                            "Review" => [new WorkflowAction("finish", "Завершити", "Done", false)],
+                            _ => Array.Empty<WorkflowAction>()
+                        };
+                        return Json(System.Text.Json.JsonSerializer.Serialize(new OrderWorkflowActions(workflowRevision, version, actions, state)));
+                    case actionPath + "/review":
+                        posts++;
+                        await releasePost.Task;
+                        state = "Review";
+                        version = "v2";
+                        return Json(OrderJson());
+                    case actionPath + "/finish":
+                        posts++;
+                        if (posts == 2)
+                        {
+                            version = "v3";
+                            return Json("{}", HttpStatusCode.Conflict);
+                        }
+                        state = "Done";
+                        version = "v4";
+                        detailsUnavailable = true;
+                        throw new TaskCanceledException("Simulated request timeout");
+                    default:
+                        return Json("{}", HttpStatusCode.NotFound);
+                }
+            });
+            var vm = new MainViewModel(new ApiClientSettings { UseMockData = false }, server.Client) { LoginName = "operator" };
+            Check(await vm.SignInAsync("password"), "Board sign-in failed");
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            OrderListItem Card(string status) => vm.KanbanColumns.Single(c => c.Status == status).Orders.Single();
+            var move = await vm.PrepareKanbanMoveAsync(Card("NewOrder")) ?? throw new Exception("Could not prepare a move");
+            Check(move.Actions.Count == 2 && vm.CanDropKanbanMove(move, "Review") && !vm.CanDropKanbanMove(move, "NewOrder") &&
+                !vm.CanDropKanbanMove(move, "Done") && !vm.CanManageOrders, "Available targets or custom role rights are incorrect");
+            var review = move.Actions.Single(a => a.Code == "review");
+            var pending = vm.ExecuteKanbanMoveAsync(move, "Review", review, "Please check");
+            await vm.ExecuteKanbanMoveAsync(move, "Review", review, "Duplicate");
+            Check(posts == 1 && Card("NewOrder").Id == 1, "The card moved before confirmation or the POST was duplicated");
+            releasePost.SetResult();
+            await pending;
+            Check(Card("Review").Id == 1 && vm.KanbanColumns.Single(c => c.Status == "Review").Total == 40 &&
+                server.Bodies[server.Paths.IndexOf(actionPath + "/review")]!.Contains("\"expectedVersion\":\"v1\"") &&
+                server.Bodies[server.Paths.IndexOf(actionPath + "/review")]!.Contains("\"expectedWorkflowRevision\":12"),
+                "Confirmation or the version from before dragging was lost");
+
+            workflowRevision++;
+            Check(await vm.PrepareKanbanMoveAsync(Card("Review")) is null && posts == 1, "Drag silently used a workflow revision not shown on the board");
+            var conflicting = await vm.PrepareKanbanMoveAsync(Card("Review")) ?? throw new Exception("Move missing");
+            await vm.ExecuteKanbanMoveAsync(conflicting, "Done", conflicting.Actions.Single(), null);
+            Check(posts == 2 && Card("Review").Id == 1 && vm.KanbanMoveMessage!.StartsWith(LocalizationManager.Instance["KanbanConflict"]) &&
+                server.Paths.LastIndexOf(detailPath) > server.Paths.LastIndexOf(actionPath + "/finish"), "Conflict was not reconciled");
+
+            var uncertain = await vm.PrepareKanbanMoveAsync(Card("Review")) ?? throw new Exception("Move missing after conflict");
+            Check(uncertain.OrderVersion == "v3", "A subsequent drag did not get a new version");
+            await vm.ExecuteKanbanMoveAsync(uncertain, "Done", uncertain.Actions.Single(), null);
+            Check(posts == 3 && Card("Review").Id == 1, "An unconfirmed move changed the board");
+            detailsUnavailable = false;
+            int beforeRead = server.Paths.Count;
+            Check(await vm.PrepareKanbanMoveAsync(Card("Review")) is null && Card("Done").Id == 1 && posts == 3 &&
+                server.Paths[beforeRead] == detailPath, "A failed verification did not require a fresh detail/history read");
         });
 
         await Test("real customers override demo names and only selected details load", async () =>
@@ -593,6 +732,78 @@ internal static class Program
             Render(new ReportsView { DataContext = vm }, Path.Combine(folder, "reports-loaded.png"), 1280, 720);
             var editor = new OrderEditorWindow { DataContext = vm };
             Render((FrameworkElement)editor.Content, Path.Combine(folder, "order-editor.png"), 1000, 650);
+        });
+
+        await Test("workflow editor renders tabs and saves, validates and publishes the draft", async () =>
+        {
+            var draft = new WorkflowDraft(1, 1, new(
+                [
+                    new("NewOrder", "Нове замовлення", 1, "New", true, false, true),
+                    new("Review", "На перевірці", 2, "InProgress", false, false, false, "#536BC5"),
+                    new("Done", "Завершене", 3, "Completed", false, true, false)
+                ],
+                [
+                    new("review", "Передати на перевірку", "NewOrder", "Review", ["Director"], ["CommentRequired"]),
+                    new("close", "Завершити", "Review", "Done", [], [])
+                ]));
+            using Fake server = new(r => r.RequestUri!.AbsolutePath switch
+            {
+                "/api/workflow/draft" when r.Method == HttpMethod.Put =>
+                    Json(System.Text.Json.JsonSerializer.Serialize(draft with { Version = 2 })),
+                "/api/workflow/draft" => Json(System.Text.Json.JsonSerializer.Serialize(draft)),
+                "/api/workflow/roles" => Json("""[{"code":"Admin","name":"Адміністратор"},{"code":"Director","name":"Директор"}]"""),
+                "/api/workflow/rule-types" => Json("""[{"code":"CommentRequired","name":"Comment is required"},{"code":"HasItems","name":"Has items"}]"""),
+                "/api/workflow/draft/validate" => Json("""{"errors":[],"affectedOrders":12}"""),
+                "/api/workflow/draft/publish" =>
+                    Json(System.Text.Json.JsonSerializer.Serialize(draft with { Version = 3, PublishedRevision = 2 })),
+                _ => Json("{}", HttpStatusCode.NotFound)
+            });
+            bool reloaded = false;
+            var vm = new WorkflowEditorViewModel(server.Client, () => { reloaded = true; return Task.CompletedTask; });
+            await vm.LoadAsync();
+            Check(vm.IsReady && !vm.IsDirty && vm.SelectedTransition?.Rules.First().Enabled == true, "Workflow draft did not load");
+            var view = new WorkflowEditorView { DataContext = vm };
+            string folder = Path.Combine(AppContext.BaseDirectory, "qa");
+            Directory.CreateDirectory(folder);
+            Render(view, Path.Combine(folder, "workflow-states.png"), 960, 620);
+            ((TabControl)view.FindName("WorkflowTabs")).SelectedIndex = 1;
+            Render(view, Path.Combine(folder, "workflow-transitions.png"), 960, 620);
+            vm.SelectedState!.Name = "New display name";
+            Check(vm.IsDirty && vm.SaveCommand.CanExecute(null) && !vm.PublishCommand.CanExecute(null), "Unsaved changes were not tracked");
+            vm.SaveCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(!vm.IsDirty && server.Bodies.Last()!.Contains("\"expectedDraftVersion\":1") &&
+                server.Bodies.Last()!.Contains("New display name"), "Editor did not save the changed definition");
+            vm.ValidateCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(vm.PublishCommand.CanExecute(null), "Validated draft could not be published");
+            vm.PublishCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(reloaded && server.Paths.Last() == "/api/workflow/draft/publish" &&
+                server.Bodies.Last()!.Contains("\"expectedDraftVersion\":2"), "Publication used the wrong draft version");
+        });
+
+        await Test("Kanban renders an empty drop target and the action/comment dialog", () =>
+        {
+            using Fake server = new(_ => Json("[]"));
+            var vm = ViewModel(server.Client);
+            vm.KanbanColumns[0].Orders.Add(new()
+            {
+                Id = 1, Number = "ORD-0001", Customer = "Демо клієнт", CreatedAt = new(2026, 11, 9), Status = "NewOrder", Total = 40
+            });
+            vm.KanbanColumns[0].RefreshMetrics();
+            vm.KanbanColumns[1].IsDropTarget = true;
+            string folder = Path.Combine(AppContext.BaseDirectory, "qa");
+            Directory.CreateDirectory(folder);
+            Render(new KanbanView { DataContext = vm }, Path.Combine(folder, "kanban-drop-target.png"), 1160, 550);
+            var dialog = new KanbanMoveWindow("На перевірці", [new("review", "На перевірку", "Review", true)]);
+            Render((FrameworkElement)dialog.Content, Path.Combine(folder, "kanban-move-dialog.png"), 465, 325);
+            var submit = (Button)dialog.FindName("ConfirmButton");
+            var comment = (TextBox)dialog.FindName("CommentInput");
+            Check(!submit.IsEnabled, "A required comment was not enforced in the dialog");
+            comment.Text = "Verified";
+            Check(submit.IsEnabled, "The dialog could not submit a valid transition");
+            return Task.CompletedTask;
         });
     }
 

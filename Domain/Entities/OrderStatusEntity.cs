@@ -7,5 +7,7 @@
         public string Name { get; set; } = string.Empty;
         public short SortOrder { get; set; }   // SMALLINT in the schema
         public bool IsFinal { get; set; }
+        public bool CanEditItems { get; set; }
+        public string Category { get; set; } = "InProgress";
     }
 }

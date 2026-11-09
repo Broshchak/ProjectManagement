@@ -20,6 +20,7 @@ namespace Application
             services.AddScoped<RoleService>();
             services.AddScoped<IReportService, ReportService>();
             services.AddScoped<IOrderEditingService, OrderEditingService>();
+            services.AddScoped<OrderWorkflowService>();
 
             return services;
         }

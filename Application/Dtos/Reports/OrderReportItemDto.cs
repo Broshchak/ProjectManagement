@@ -7,4 +7,5 @@ public sealed record OrderReportItemDto(
     string StatusCode,
     string StatusName,
     decimal TotalAmount,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string StatusCategory);

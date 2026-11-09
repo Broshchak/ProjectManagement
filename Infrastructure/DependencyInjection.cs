@@ -30,6 +30,7 @@ namespace Infrastructure
             );
 
             services.AddScoped<IOrderRepository, OrderRepository>();
+            services.AddScoped<IOrderWorkflowRepository, OrderWorkflowRepository>();
             services.AddScoped<IUserRepository, UserRepository>();
             services.AddScoped<IRoleRepository, RoleRepository>();
             services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();

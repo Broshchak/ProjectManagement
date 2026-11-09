@@ -7,13 +7,14 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
+using Orders.Workflow;
 using WpfClient.Models;
 using WpfClient.Services;
 using WpfClient.Views;
 
 namespace WpfClient.ViewModels;
 
-public sealed class MainViewModel : INotifyPropertyChanged
+public sealed partial class MainViewModel : INotifyPropertyChanged
 {
     private readonly IOrdersApiClient _apiClient;
     private readonly ApiClientSettings _apiSettings;
@@ -74,9 +75,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _currentUserName;
     private string? _currentRoleName;
     private string _orderSearchText = string.Empty;
-    private string _orderStatusFilter = "Усі";
+    private string _orderStatusFilter = "";
     private string _kanbanSearchText = string.Empty;
-    private string _kanbanStatusFilter = "Усі";
+    private string _kanbanStatusFilter = "";
     private string _productSearchText = string.Empty;
     private bool _showOnlyLowStockProducts;
     private string _userLogin = string.Empty;
@@ -140,6 +141,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (_apiClient is IRoleAccessApiClient roles)
             _roleEditor = new RoleAccessViewModel(roles, RefreshAfterRoleEditAsync);
 
+        if (_apiClient is IWorkflowApiClient workflow)
+            _workflowEditor = new WorkflowEditorViewModel(workflow, LoadClientDataAsync);
+
         var navigation = new List<NavigationItem>
         {
             new NavigationItem("Dashboard", "NavDashboard", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
@@ -152,6 +156,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         if (_roleEditor is not null)
             navigation.Add(new("Roles", "NavRoles", new RoleAccessView { DataContext = _roleEditor }, []));
+        if (_workflowEditor is not null)
+            navigation.Add(new("Workflow", "NavWorkflow", new WorkflowEditorView { DataContext = _workflowEditor }, []));
         _allNavigationItems = navigation;
 
         NavigationItems = new ObservableCollection<NavigationItem>();
@@ -162,12 +168,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (item is not NavigationItem target || !await RefreshAccessAsync() || !NavigationItems.Contains(target)) return;
             SelectedItem = target;
             if (target.Key == "Roles" && _roleEditor is not null) await _roleEditor.LoadAsync();
+            if (target.Key == "Workflow" && _workflowEditor is not null) await _workflowEditor.LoadAsync();
         });
 
-        SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
+        SignOutCommand = new RelayCommand(_ => { if (ConfirmDiscardWorkflow()) SignOut(); }, _ => IsAuthenticated);
         LinkTelegramCommand = new RelayCommand(async _ => await LinkTelegramAsync(),
             _ => CanLinkTelegram && !_telegramLinkPending);
-        RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
+        RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(),
+            _ => IsAuthenticated && !IsLoading && !IsOrderStatusActionRunning);
         RefreshReportsCommand = new RelayCommand(async _ => await LoadReportsAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
         ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
         ClearOrderFiltersCommand = new RelayCommand(_ => ClearOrderFilters(), _ => HasOrderFilters);
@@ -176,8 +184,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OpenProductPriceSearchCommand = new RelayCommand(_ => OpenProductPriceSearch(), _ => SelectedProduct is not null);
         OpenLowStockProductsCommand = new RelayCommand(_ => OpenLowStockProducts(), _ => HasLowStockProducts);
         ChangeOrderStatusCommand = new RelayCommand(
-            async action => await ChangeOrderStatusAsync(action as string),
-            action => CanExecuteOrderStatusAction(action as string));
+            async action => await ChangeOrderStatusAsync(action as WorkflowAction),
+            action => CanExecuteOrderStatusAction(action as WorkflowAction));
         BeginCreateOrderCommand = new RelayCommand(_ => BeginCreateOrder(), _ => CanCreateOrders && !IsLoading && Products.Any(p => p.IsActive));
         OpenOrderEditorCommand = new RelayCommand(_ => OpenOrderEditor(), _ => CanEditSelectedOrder);
         OpenSelectOrderCustomerCommand = new RelayCommand(_ => OpenSelectOrderCustomerDialog(), _ => IsCreatingOrder);
@@ -256,7 +264,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<string> RoleOptions => _roleOptions;
 
-    public ObservableCollection<string> OrderStatusFilterOptions { get; } = [];
+    public ObservableCollection<WorkflowOption> OrderStatusFilterOptions { get; } = [];
 
     public ICommand NavigateCommand { get; }
 
@@ -602,7 +610,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public bool HasOrderFilters =>
-        !string.IsNullOrWhiteSpace(OrderSearchText) || OrderStatusFilter != T["All"];
+        !string.IsNullOrWhiteSpace(OrderSearchText) || !string.IsNullOrEmpty(OrderStatusFilter);
 
     public string OrderFilterSummaryText => _allOrders.Count == Orders.Count
         ? T.Format("ShownAllOrders", Orders.Count)
@@ -645,7 +653,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public bool HasKanbanFilters =>
-        !string.IsNullOrWhiteSpace(KanbanSearchText) || KanbanStatusFilter != T["All"];
+        !string.IsNullOrWhiteSpace(KanbanSearchText) || !string.IsNullOrEmpty(KanbanStatusFilter);
 
     public OrderListItem? SelectedOrder
     {
@@ -692,7 +700,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool HasSelectedOrderDetails => SelectedOrderDetails is not null;
 
-    public bool IsSelectedOrderEditable => SelectedOrderDetails is { IsStatusFinal: false } && SelectedOrderDetails.Status is "NewOrder" or "Registered";
+    public bool IsSelectedOrderEditable => SelectedOrderDetails is { IsStatusFinal: false } order &&
+        (order.CanEditItems ?? order.Status is "NewOrder" or "Registered");
 
     public bool CanEditSelectedOrder => CanManageOrders
         && !IsLoading
@@ -842,19 +851,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
             CommandManager.InvalidateRequerySuggested();
         }
     }
-
-    public bool CanRegisterOrder => CanShowOrderStatusAction("register");
-
-    public bool CanGrantOrder => CanShowOrderStatusAction("grant");
-
-    public bool CanShipOrder => CanShowOrderStatusAction("ship");
-
-    public bool CanInvoiceOrder => CanShowOrderStatusAction("invoice");
-
-    public bool CanCancelOrder => CanShowOrderStatusAction("cancel");
-
-    public bool HasAvailableOrderStatusActions =>
-        CanRegisterOrder || CanGrantOrder || CanShipOrder || CanInvoiceOrder || CanCancelOrder;
 
     public bool IsOrderDetailsLoading
     {
@@ -1367,6 +1363,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             await LoadClientDataAsync();
             if (SelectedItem.Key == "Roles" && _roleEditor is not null) await _roleEditor.LoadAsync();
+            if (SelectedItem.Key == "Workflow" && _workflowEditor is not null) await _workflowEditor.LoadAsync();
             return IsAuthenticated;
         }
         catch (Exception exception)
@@ -1424,6 +1421,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _permissions = null;
         _permissionRefresh = null;
         _roleEditor?.Reset();
+        _workflowEditor?.Reset();
+        ClearWorkflowActions();
+        ResetKanbanMove();
         _roleOptions = ["Admin", "Manager", "Viewer", "Director"];
         OnPropertyChanged(nameof(RoleOptions));
         _serverUsers.Clear();
@@ -1459,9 +1459,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         EditableOrderItems.Clear();
         SelectedOrderItem = null;
         OrderSearchText = string.Empty;
-        OrderStatusFilter = T["All"];
+        OrderStatusFilter = "";
         KanbanSearchText = string.Empty;
-        KanbanStatusFilter = T["All"];
+        KanbanStatusFilter = "";
         ProductSearchText = string.Empty;
         ShowOnlyLowStockProducts = false;
         IsCreatingOrder = false;
@@ -1488,6 +1488,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 "Users" => "users.read",
                 "Reports" => "reports.read",
                 "Roles" => "roles.manage",
+                "Workflow" => "workflow.manage",
                 _ => ""
             };
             if (Can(code, item.IsAllowedFor(CurrentRoleName ?? ""))) NavigationItems.Add(item);
@@ -1566,6 +1567,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             if (lost.Contains("users.manage")) CloseUserEditor();
             if (lost.Contains("roles.manage")) _roleEditor?.Reset();
+            if (lost.Contains("workflow.manage")) _workflowEditor?.Reset();
+            if (lost.Contains("orders.read") || lost.Contains("orders.edit") || CurrentRoleName != access.Role)
+                ClearWorkflowActions();
             if (lost.Contains("reports.read") || lost.Contains("customers.read")) InvalidateReports();
             Summary = BuildReportSummary(_allOrders, _allProducts);
 
@@ -1618,12 +1622,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TodayReportSummaryText));
         OnPropertyChanged(nameof(UsersUnavailableText));
         OnPropertyChanged(nameof(OrderEditCapabilities));
-        string? selectedStatusCode = OrderStatusNames.ToCode(OrderStatusFilter);
-        string? selectedKanbanStatusCode = OrderStatusNames.ToCode(KanbanStatusFilter);
-
         UpdateOrderStatusFilterOptions();
-        OrderStatusFilter = selectedStatusCode is null ? T["All"] : OrderStatusNames.ToText(selectedStatusCode);
-        KanbanStatusFilter = selectedKanbanStatusCode is null ? T["All"] : OrderStatusNames.ToText(selectedKanbanStatusCode);
+        RefreshWorkflowActionLabels();
+        _workflowEditor?.RefreshLanguage();
 
         OnPropertyChanged(nameof(ApiModeText));
         OnPropertyChanged(nameof(LoadingStatusText));
@@ -1649,18 +1650,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void UpdateOrderStatusFilterOptions()
     {
-        string[] options =
-        [
-            T["All"],
-            OrderStatusNames.ToText("NewOrder"),
-            OrderStatusNames.ToText("Registered"),
-            OrderStatusNames.ToText("Granted"),
-            OrderStatusNames.ToText("Shipped"),
-            OrderStatusNames.ToText("Invoiced"),
-            OrderStatusNames.ToText("Cancelled")
-        ];
-
-        ReplaceCollection(OrderStatusFilterOptions, options);
+        string orderFilter = OrderStatusFilter;
+        string boardFilter = KanbanStatusFilter;
+        ReplaceCollection(OrderStatusFilterOptions, new[] { new WorkflowOption("", T["All"]) }
+            .Concat(KanbanColumns.Select(column => new WorkflowOption(column.Status, column.Title))));
+        OrderStatusFilter = KanbanColumns.Any(c => c.Status == orderFilter) ? orderFilter : "";
+        KanbanStatusFilter = KanbanColumns.Any(c => c.Status == boardFilter) ? boardFilter : "";
     }
 
     private async Task LoadClientDataAsync()
@@ -1673,6 +1668,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             int? selectedOrderId = SelectedOrder?.Id;
+            await LoadWorkflowAsync(session);
+            if (session != _sessionVersion || !IsAuthenticated) return;
             IReadOnlyList<OrderListItem> orders = Can("orders.read", true) ? await _apiClient.GetOrdersAsync() : [];
             if (session != _sessionVersion || !IsAuthenticated) return;
             IReadOnlyList<ProductListItem> products;
@@ -1878,11 +1875,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task LoadSelectedOrderDetailsAsync()
     {
         int version = ++_detailVersion;
+        ClearWorkflowActions();
         int session = _sessionVersion;
         int? orderId = SelectedOrder?.Id;
         if (SelectedOrder is null)
         {
             SelectedOrderDetails = null;
+            IsOrderDetailsLoading = false;
             return;
         }
 
@@ -1896,6 +1895,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedOrderDetails = null;
             SelectedOrderDetails = details;
             SelectedOrderItem = details?.Items.FirstOrDefault();
+            try { await LoadWorkflowActionsAsync(details, session, version); }
+            catch (Exception ex)
+            {
+                if (session == _sessionVersion && version == _detailVersion)
+                    ApiErrorMessage = T["WorkflowActionsFailed"] + " " + ex.Message;
+            }
         }
         catch (Exception exception)
         {
@@ -1908,70 +1913,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (session == _sessionVersion && version == _detailVersion) IsOrderDetailsLoading = false;
         }
-    }
-
-    private async Task ChangeOrderStatusAsync(string? action)
-    {
-        if (!CanExecuteOrderStatusAction(action) || SelectedOrderDetails is null)
-        {
-            return;
-        }
-
-        IsOrderStatusActionRunning = true;
-        ApiErrorMessage = null;
-
-        try
-        {
-            await _apiClient.ChangeOrderStatusAsync(SelectedOrderDetails.Id, action!);
-            await LoadClientDataAsync();
-        }
-        catch (Exception exception)
-        {
-            ApiErrorMessage = $"Не вдалося змінити стан замовлення. Деталі: {exception.Message}";
-        }
-        finally
-        {
-            IsOrderStatusActionRunning = false;
-        }
-    }
-
-    private bool CanExecuteOrderStatusAction(string? action)
-    {
-        return !IsOrderStatusActionRunning
-            && !IsLoading
-            && !IsOrderDetailsLoading
-            && CanShowOrderStatusAction(action);
-    }
-
-    private bool CanShowOrderStatusAction(string? action)
-    {
-        if (!CanManageOrders || SelectedOrderDetails is null || SelectedOrderDetails.IsStatusFinal || string.IsNullOrWhiteSpace(action))
-        {
-            return false;
-        }
-
-        return (SelectedOrderDetails.Status, action.ToLowerInvariant()) switch
-        {
-            ("NewOrder", "register") => true,
-            ("NewOrder", "cancel") => true,
-            ("Registered", "grant") => true,
-            ("Registered", "cancel") => true,
-            ("Granted", "ship") => true,
-            ("Granted", "cancel") => true,
-            ("Shipped", "invoice") => true,
-            _ => false
-        };
-    }
-
-    private void OnOrderStatusActionPropertiesChanged()
-    {
-        OnPropertyChanged(nameof(CanRegisterOrder));
-        OnPropertyChanged(nameof(CanGrantOrder));
-        OnPropertyChanged(nameof(CanShipOrder));
-        OnPropertyChanged(nameof(CanInvoiceOrder));
-        OnPropertyChanged(nameof(CanCancelOrder));
-        OnPropertyChanged(nameof(HasAvailableOrderStatusActions));
-        CommandManager.InvalidateRequerySuggested();
     }
 
     private void BeginCreateOrder()
@@ -2312,11 +2253,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return new ReportSummary
         {
             TotalOrders = orderList.Count,
-            NewOrders = orderList.Count(order => order.Status == "NewOrder"),
-            OrdersInProgress = orderList.Count(order => order.Status is "Registered" or "Granted"),
-            ShippedOrders = orderList.Count(order => order.Status == "Shipped"),
-            InvoicedOrders = orderList.Count(order => order.Status == "Invoiced"),
-            CancelledOrders = orderList.Count(order => order.Status == "Cancelled"),
+            NewOrders = orderList.Count(order => (order.StatusCategory ?? OrderStatusNames.Category(order.Status)) == "New"),
+            OrdersInProgress = orderList.Count(order => (order.StatusCategory ?? OrderStatusNames.Category(order.Status)) == "InProgress"),
+            ShippedOrders = orderList.Count(order => (order.StatusCategory ?? OrderStatusNames.Category(order.Status)) == "Shipped"),
+            InvoicedOrders = orderList.Count(order => (order.StatusCategory ?? OrderStatusNames.Category(order.Status)) == "Completed"),
+            CancelledOrders = orderList.Count(order => (order.StatusCategory ?? OrderStatusNames.Category(order.Status)) == "Cancelled"),
             TotalAmount = orderList.Sum(order => order.Total),
             AverageOrderAmount = orderList.Count == 0 ? 0 : orderList.Average(order => order.Total),
             LowStockProducts = products.Count(IsLowStockProduct),
@@ -2430,10 +2371,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 || order.CreatedAtText.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
 
-        string? statusCode = OrderStatusNames.ToCode(statusFilter);
-        if (statusCode is not null)
+        if (!string.IsNullOrEmpty(statusFilter))
         {
-            filteredOrders = filteredOrders.Where(order => order.Status == statusCode);
+            filteredOrders = filteredOrders.Where(order => order.Status == statusFilter);
         }
 
         return filteredOrders;
@@ -2442,14 +2382,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ClearOrderFilters()
     {
         OrderSearchText = string.Empty;
-        OrderStatusFilter = T["All"];
+        OrderStatusFilter = "";
         ApplyOrderFilters();
     }
 
     private void ClearKanbanFilters()
     {
         KanbanSearchText = string.Empty;
-        KanbanStatusFilter = T["All"];
+        KanbanStatusFilter = "";
         ApplyKanbanFilters();
     }
 

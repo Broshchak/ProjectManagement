@@ -41,7 +41,8 @@
                                  ToolTip="{Binding Path=T[OrderSearchTip]}" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding OrderStatusFilterOptions}"
-                                  SelectedItem="{Binding OrderStatusFilter, Mode=TwoWay}"
+                                  DisplayMemberPath="Name" SelectedValuePath="Code"
+                                  SelectedValue="{Binding OrderStatusFilter, Mode=TwoWay}"
                                   MinHeight="34"
                                   Padding="8"
                                   Margin="0,0,8,0" />
@@ -161,38 +162,21 @@
                                        FontWeight="SemiBold"
                                        Foreground="#17202B"
                                        Margin="0,0,0,8" />
-                            <WrapPanel>
-                                <Button Content="{Binding Path=T[Register]}"
-                                        Command="{Binding ChangeOrderStatusCommand}"
-                                        CommandParameter="register"
-                                        Style="{StaticResource ActionButtonStyle}"
-                                        Visibility="{Binding CanRegisterOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                        Margin="0,0,8,8" />
-                                <Button Content="{Binding Path=T[Grant]}"
-                                        Command="{Binding ChangeOrderStatusCommand}"
-                                        CommandParameter="grant"
-                                        Style="{StaticResource ActionButtonStyle}"
-                                        Visibility="{Binding CanGrantOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                        Margin="0,0,8,8" />
-                                <Button Content="{Binding Path=T[Ship]}"
-                                        Command="{Binding ChangeOrderStatusCommand}"
-                                        CommandParameter="ship"
-                                        Style="{StaticResource ActionButtonStyle}"
-                                        Visibility="{Binding CanShipOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                        Margin="0,0,8,8" />
-                                <Button Content="{Binding Path=T[Invoice]}"
-                                        Command="{Binding ChangeOrderStatusCommand}"
-                                        CommandParameter="invoice"
-                                        Style="{StaticResource ActionButtonStyle}"
-                                        Visibility="{Binding CanInvoiceOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                        Margin="0,0,8,8" />
-                                <Button Content="{Binding Path=T[Cancel]}"
-                                        Command="{Binding ChangeOrderStatusCommand}"
-                                        CommandParameter="cancel"
-                                        Style="{StaticResource ActionButtonStyle}"
-                                        Visibility="{Binding CanCancelOrder, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                        Margin="0,0,8,8" />
-                            </WrapPanel>
+                            <TextBlock Text="{Binding T[WorkflowTransitionComment]}" Foreground="#526377" Margin="0,0,0,4"/>
+                            <TextBox Text="{Binding TransitionComment, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000"
+                                     Padding="8,5" MinHeight="32" Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding AvailableActions}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding Name}"
+                                                Command="{Binding DataContext.ChangeOrderStatusCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" Style="{StaticResource ActionButtonStyle}" Margin="0,0,8,8"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
 
                         <TextBlock Text="{Binding Path=T[StatusHistory]}"
