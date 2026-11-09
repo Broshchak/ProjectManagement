@@ -10,57 +10,87 @@ namespace WpfClient.Services;
 
 public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient, IAuthApiClient, IManagementApiClient, IOrderEditingApiClient
 {
-    private DateTimeOffset? _expiresAt;
+    private readonly object _sessionLock = new();
+    private readonly SemaphoreSlim _refreshGate = new(1);
     private CancellationTokenSource _session = new();
+    private LoginResponse? _tokens;
     public event Action? SessionExpired;
 
     public async Task<AuthenticatedUser> SignInAsync(string login, string password, CancellationToken cancellationToken = default)
     {
-        SignOut();
-        using HttpResponseMessage loginResponse = await PostJsonAsync(
-            "api/auth/login",
-            new LoginRequest(login, password),
-            cancellationToken);
-
-        LoginResponse? token = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>(cancellationToken);
-        if (token is null || string.IsNullOrWhiteSpace(token.AccessToken))
-        {
-            throw new InvalidOperationException("API не повернув токен авторизації.");
-        }
-
-        _expiresAt = token.AccessTokenExpiresAt;
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            token.TokenType,
-            token.AccessToken);
-
+        var session = ResetSession();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(session, cancellationToken);
         try
         {
-            CurrentUserResponse? currentUser = await GetJsonAsync<CurrentUserResponse>("api/auth/me", cancellationToken);
-            return currentUser is null
-                ? throw new InvalidOperationException("API не повернув поточного користувача.")
-                : new AuthenticatedUser
-                {
-                    Login = currentUser.Login,
-                    FullName = currentUser.FullName,
-                    Role = currentUser.Role,
-                    Id = currentUser.Id,
-                    AccessTokenExpiresAt = token.AccessTokenExpiresAt
-                };
+            using var response = await httpClient.PostAsJsonAsync("api/auth/login", new LoginRequest(login, password), linked.Token);
+            await EnsureSuccessWithApiMessageAsync(response, linked.Token);
+            var tokens = await ReadTokensAsync(response, linked.Token);
+            SetTokens(session, tokens);
+
+            var user = await GetJsonAsync<CurrentUserResponse>("api/auth/me", linked.Token)
+                ?? throw new InvalidOperationException("API не повернув поточного користувача.");
+            linked.Token.ThrowIfCancellationRequested();
+            return new AuthenticatedUser
+            {
+                Login = user.Login,
+                FullName = user.FullName,
+                Role = user.Role,
+                Id = user.Id,
+                AccessTokenExpiresAt = GetTokens(session)?.AccessTokenExpiresAt
+            };
         }
         catch
         {
-            SignOut();
+            ResetSession(session);
             throw;
         }
     }
 
-    public void SignOut()
+    public void SignOut() => ResetSession();
+
+    private CancellationToken ResetSession(CancellationToken? expected = null, bool expired = false)
     {
-        _session.Cancel();
-        _session.Dispose();
-        _session = new();
-        _expiresAt = null;
-        httpClient.DefaultRequestHeaders.Authorization = null;
+        CancellationTokenSource previous;
+        CancellationToken next;
+        lock (_sessionLock)
+        {
+            if (expected.HasValue && expected.Value != _session.Token) return _session.Token;
+            previous = _session;
+            _session = new();
+            next = _session.Token;
+            _tokens = null;
+            httpClient.DefaultRequestHeaders.Authorization = null;
+        }
+        previous.Cancel();
+        previous.Dispose();
+        if (expired) SessionExpired?.Invoke();
+        return next;
+    }
+
+    private LoginResponse? GetTokens(CancellationToken session)
+    {
+        lock (_sessionLock)
+        {
+            if (session != _session.Token) throw new OperationCanceledException(session);
+            return _tokens;
+        }
+    }
+
+    private void SetTokens(CancellationToken session, LoginResponse tokens)
+    {
+        lock (_sessionLock)
+        {
+            if (session != _session.Token) throw new OperationCanceledException(session);
+            _tokens = tokens;
+        }
+    }
+
+    private static async Task<LoginResponse> ReadTokensAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var tokens = await response.Content.ReadFromJsonAsync<LoginResponse>(ct);
+        return tokens is not null && !string.IsNullOrWhiteSpace(tokens.AccessToken)
+            ? tokens
+            : throw new InvalidOperationException("API не повернув токен авторизації.");
     }
 
     public async Task<IReadOnlyList<OrderListItem>> GetOrdersAsync(CancellationToken cancellationToken = default)
@@ -450,21 +480,35 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? body, CancellationToken ct)
     {
-        using HttpRequestMessage request = new(method, path) { Content = body };
-        bool login = path == "api/auth/login";
-        if (!login && httpClient.DefaultRequestHeaders.Authorization is null)
-            throw new ApiException(LocalizationManager.Instance["SessionExpired"], HttpStatusCode.Unauthorized);
-        if (!login && _expiresAt <= DateTimeOffset.UtcNow)
+        using var content = body;
+        CancellationToken session;
+        lock (_sessionLock) session = _session.Token;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, session);
+        var tokens = GetTokens(session);
+        if (tokens is null && httpClient.DefaultRequestHeaders.Authorization is null)
+            throw SessionExpiredError();
+
+        bool refreshAttempted = false;
+        if (tokens is not null &&
+            (tokens.AccessTokenExpiresAt <= DateTimeOffset.UtcNow ||
+             (!string.IsNullOrEmpty(tokens.RefreshToken) && tokens.AccessTokenExpiresAt <= DateTimeOffset.UtcNow.AddSeconds(30))))
         {
-            ExpireSession();
-            throw new ApiException(LocalizationManager.Instance["SessionExpired"], HttpStatusCode.Unauthorized);
+            refreshAttempted = true;
+            tokens = await RefreshAsync(session, tokens, linked.Token);
         }
-        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _session.Token);
-        HttpResponseMessage response = await httpClient.SendAsync(request, linked.Token);
+
+        var response = await SendOnceAsync(tokens);
         try
         {
-            if (!login && response.StatusCode == HttpStatusCode.Unauthorized)
-                ExpireSession();
+            if (response.StatusCode == HttpStatusCode.Unauthorized && tokens is not null && !refreshAttempted)
+            {
+                response.Dispose();
+                tokens = await RefreshAsync(session, tokens, linked.Token);
+                response = await SendOnceAsync(tokens);
+            }
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                ResetSession(session, expired: true);
             await EnsureSuccessWithApiMessageAsync(response, ct);
             return response;
         }
@@ -473,13 +517,58 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             response.Dispose();
             throw;
         }
+
+        async Task<HttpResponseMessage> SendOnceAsync(LoginResponse? credentials)
+        {
+            using var request = new HttpRequestMessage(method, path) { Content = content };
+            if (credentials is not null)
+                request.Headers.Authorization = new AuthenticationHeaderValue(credentials.TokenType, credentials.AccessToken);
+            try { return await httpClient.SendAsync(request, linked.Token); }
+            finally { request.Content = null; } // the caller owns JSON content across a possible 401 retry
+        }
     }
 
-    private void ExpireSession()
+    private async Task<LoginResponse> RefreshAsync(CancellationToken session, LoginResponse observed, CancellationToken ct)
     {
-        SignOut();
-        SessionExpired?.Invoke();
+        await _refreshGate.WaitAsync(ct);
+        try
+        {
+            var current = GetTokens(session) ?? throw SessionExpiredError();
+            if (!ReferenceEquals(current, observed)) return current;
+            if (string.IsNullOrWhiteSpace(current.RefreshToken) || current.RefreshTokenExpiresAt is null ||
+                current.RefreshTokenExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                ResetSession(session, expired: true);
+                throw SessionExpiredError();
+            }
+
+            try
+            {
+                using var response = await httpClient.PostAsJsonAsync("api/auth/refresh", new { current.RefreshToken }, session);
+                await EnsureSuccessWithApiMessageAsync(response, session);
+                var refreshed = await ReadTokensAsync(response, session);
+                if (string.IsNullOrWhiteSpace(refreshed.RefreshToken) ||
+                    refreshed.AccessTokenExpiresAt is null || refreshed.RefreshTokenExpiresAt is null)
+                    throw new InvalidOperationException("API повернув неповну пару токенів.");
+                SetTokens(session, refreshed);
+                return refreshed;
+            }
+            catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                throw; // a rate-limited request has not consumed the refresh token
+            }
+            catch
+            {
+                // A timeout may mean the server already rotated this token. Never send it again.
+                ResetSession(session, expired: true);
+                throw;
+            }
+        }
+        finally { _refreshGate.Release(); }
     }
+
+    private static ApiException SessionExpiredError() =>
+        new(LocalizationManager.Instance["SessionExpired"], HttpStatusCode.Unauthorized);
 
     private sealed class OrderSummaryResponse
     {
@@ -679,6 +768,8 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
     {
         public DateTimeOffset? AccessTokenExpiresAt { get; set; }
         public string AccessToken { get; set; } = string.Empty;
+        public string? RefreshToken { get; set; }
+        public DateTimeOffset? RefreshTokenExpiresAt { get; set; }
 
         public string TokenType { get; set; } = "Bearer";
     }

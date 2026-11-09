@@ -1,4 +1,4 @@
-﻿using Application.Common.Interfaces;
+using Application.Common.Interfaces;
 using Application.Dtos.Orders;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +14,20 @@ namespace Infrastructure.Persistence.Repositories
             return await context.Set<OrderEntity>()
                 .FirstOrDefaultAsync(o => o.Id == id, ct);
         }
+
+        public async Task<OrderEntity?> GetForUpdateAsync(int id, CancellationToken ct = default)
+        {
+            if (context.Database.CurrentTransaction is null)
+                throw new InvalidOperationException("An order lock requires an active transaction.");
+            var order = await context.Set<OrderEntity>()
+                .FromSqlInterpolated($"SELECT * FROM orders WHERE id = {id} FOR UPDATE")
+                .SingleOrDefaultAsync(ct);
+            if (order is not null)
+                await context.Entry(order).Collection(o => o.Items).LoadAsync(ct);
+            return order;
+        }
+
+        public void Touch(OrderEntity order) => context.Entry(order).Property(o => o.Comment).IsModified = true;
 
         public async Task<OrderEntity?> GetByNumberAsync(string orderNumber, CancellationToken ct = default)
         {

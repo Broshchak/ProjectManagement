@@ -10,14 +10,15 @@ namespace Infrastructure.Security
             [Roles.Admin] =
             [
                 Permissions.OrdersRead, Permissions.OrdersCreate, Permissions.OrdersEdit,
-                Permissions.UsersManage, Permissions.ReportsRead, Permissions.ReportsTelegramSend,
+                Permissions.UsersRead, Permissions.UsersManage, Permissions.ProductsRead, Permissions.ProductsManage, Permissions.ReportsRead, Permissions.ReportsTelegramSend,
                 Permissions.SystemDiagnostics, Permissions.TelegramLink
             ],
-            [Roles.Manager] = [Permissions.OrdersRead, Permissions.OrdersCreate, Permissions.OrdersEdit],
-            [Roles.Viewer] = [Permissions.OrdersRead],
+            [Roles.Manager] = [Permissions.OrdersRead, Permissions.OrdersCreate, Permissions.OrdersEdit, Permissions.ProductsRead],
+            [Roles.Viewer] = [Permissions.OrdersRead, Permissions.ProductsRead, Permissions.ReportsRead],
             [Roles.Director] =
             [
-                Permissions.OrdersRead, Permissions.ReportsRead, Permissions.ReportsTelegramSend,
+                Permissions.OrdersRead, Permissions.OrdersCreate, Permissions.OrdersEdit, Permissions.UsersRead,
+                Permissions.ProductsRead, Permissions.ProductsManage, Permissions.ReportsRead, Permissions.ReportsTelegramSend,
                 Permissions.TelegramLink
             ],
             [Roles.TelegramBot] = [Permissions.BotAct]

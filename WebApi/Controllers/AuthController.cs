@@ -10,7 +10,7 @@ namespace WebApi.Controllers
 {
     [Route("api/auth")]
     [ApiController]
-    public class AuthController(IAuthService authService, IPermissionProvider permissions) : ControllerBase
+    public class AuthController(IAuthService authService, IPermissionProvider permissions, IUserRepository users) : ControllerBase
     {
         [HttpPost("login")]
         [AllowAnonymous]
@@ -48,7 +48,10 @@ namespace WebApi.Controllers
             var role = User.FindFirst(AppClaims.Role)!.Value;
             var granted = await permissions.GetPermissionsAsync(role, ct);
 
-            return Ok(new CurrentUserDto(userId, role, granted));
+            var user = await users.GetDetailsAsync(userId, ct);
+            return user is { IsActive: true }
+                ? Ok(new CurrentUserDto(userId, role, granted, user.Login, user.FullName))
+                : InvalidCredentials();
         }
 
         // One generic answer for every failure: wrong password, unknown login, inactive user, bad token.

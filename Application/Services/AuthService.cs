@@ -56,6 +56,11 @@ namespace Application.Services
                 return null;
             }
 
+            return await unitOfWork.InTransactionAsync(token => RotateAsync(refreshToken, token), ct);
+        }
+
+        private async Task<TokenPairDto?> RotateAsync(string refreshToken, CancellationToken ct)
+        {
             var hash = tokens.HashRefreshToken(refreshToken);
             var now = DateTime.UtcNow;
 

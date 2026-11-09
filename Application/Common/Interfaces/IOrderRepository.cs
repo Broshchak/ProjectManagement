@@ -7,6 +7,9 @@ namespace Application.Common.Interfaces
     {
         Task<bool> CustomerExistsAsync(int customerId, CancellationToken ct = default);
         Task<OrderEntity?> GetByIdAsync(int id, CancellationToken ct = default);
+        // Must be called inside IUnitOfWork.InTransactionAsync; includes tracked items.
+        Task<OrderEntity?> GetForUpdateAsync(int id, CancellationToken ct = default);
+        void Touch(OrderEntity order);
         Task<OrderEntity?> GetByNumberAsync(string orderNumber, CancellationToken ct = default);
         Task<IEnumerable<OrderSummaryDto>> GetSummariesAsync(CancellationToken ct = default);
         Task<OrderDetailDto?> GetDetailByIdAsync(int id, CancellationToken ct = default);

@@ -9,7 +9,7 @@ namespace Application.Services
         ITelegramRepository repository,
         ITokenService tokens,
         IPermissionProvider permissions,
-        IReportService reports) : IBotService
+        IBotReportService reports) : IBotService
     {
         public async Task<BotUserDto?> ResolveAsync(long telegramUserId, CancellationToken ct = default)
         {

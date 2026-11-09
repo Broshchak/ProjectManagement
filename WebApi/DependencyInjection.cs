@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Net;
 using System.Threading.RateLimiting;
 using Application;
 using Application.Common.Interfaces;
@@ -71,21 +72,25 @@ namespace WebApi
 
             services.AddAuthorization(options =>
             {
-                options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+                options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser()
+                    .RequireAssertion(context => context.User.FindFirst(AppClaims.Role)?.Value is { } role && role != Roles.TelegramBot)
+                    .Build();
             });
             services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
             services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 
-            // Behind the host's reverse proxy, RemoteIpAddress is the proxy unless forwarded headers are honored.
-            // Without this, the login rate limiter would put every user into one shared bucket.
-            // Clearing the trusted-proxy lists is only safe if the app is reachable exclusively through the proxy.
-            // If the host documents its proxy IPs, add them to KnownProxies instead.
+            // The bot allowlist and rate limits use the client IP. Trust forwarding only from known proxies.
             services.Configure<ForwardedHeadersOptions>(options =>
             {
                 options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-                options.KnownIPNetworks.Clear();
-                options.KnownProxies.Clear();
                 options.ForwardLimit = 1;
+                foreach (var entry in (configuration["ReverseProxy:KnownProxies"] ?? string.Empty)
+                             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!IPAddress.TryParse(entry, out var address))
+                        throw new InvalidOperationException("ReverseProxy:KnownProxies must contain comma-separated IP addresses.");
+                    options.KnownProxies.Add(address);
+                }
             });
 
             services.AddRateLimiter(options =>

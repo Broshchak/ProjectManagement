@@ -10,11 +10,15 @@ namespace Application
         {
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<IAuthService, AuthService>();
-            services.AddScoped<IUserService, UserService>();
+
             services.AddScoped<ITelegramLinkService, TelegramLinkService>();
             services.AddScoped<IBotService, BotService>();
-            services.AddScoped<IReportService, StubReportService>();
+            services.AddScoped<IBotReportService, BotReportService>();
             services.AddScoped<IProductService, ProductService>();
+            services.AddScoped<ICustomerService, CustomerService>();
+            services.AddScoped<IUserManagementService, UserManagementService>();
+            services.AddScoped<IReportService, ReportService>();
+            services.AddScoped<IOrderEditingService, OrderEditingService>();
 
             return services;
         }

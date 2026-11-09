@@ -1,14 +1,18 @@
 using Application.Common.Interfaces;
 using Application.Dtos.Products;
 using Microsoft.AspNetCore.Mvc;
+using Application.Security;
+using WebApi.Security;
 
 namespace WebApi.Controllers;
 
 [Route("api/products")]
 [ApiController]
+
 public class ProductsController(IProductService productService) : ControllerBase
 {
     [HttpGet]
+    [HasPermission(Permissions.ProductsRead)]
     public async Task<IActionResult> GetProducts(CancellationToken ct = default)
     {
         var products = await productService.GetProductsAsync(ct);
@@ -16,6 +20,7 @@ public class ProductsController(IProductService productService) : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission(Permissions.ProductsRead)]
     public async Task<IActionResult> GetProduct(int id, CancellationToken ct = default)
     {
         var product = await productService.GetProductAsync(id, ct);
@@ -23,6 +28,7 @@ public class ProductsController(IProductService productService) : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission(Permissions.ProductsManage)]
     public async Task<IActionResult> CreateProduct([FromBody] UpsertProductDto dto, CancellationToken ct = default)
     {
         try
@@ -37,6 +43,7 @@ public class ProductsController(IProductService productService) : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission(Permissions.ProductsManage)]
     public async Task<IActionResult> UpdateProduct(int id, [FromBody] UpsertProductDto dto, CancellationToken ct = default)
     {
         try
@@ -51,6 +58,7 @@ public class ProductsController(IProductService productService) : ControllerBase
     }
 
     [HttpGet("{id:int}/stock")]
+    [HasPermission(Permissions.ProductsRead)]
     public async Task<IActionResult> GetProductStock(int id, CancellationToken ct = default)
     {
         var stock = await productService.GetProductStockAsync(id, ct);
@@ -58,6 +66,7 @@ public class ProductsController(IProductService productService) : ControllerBase
     }
 
     [HttpPut("{id:int}/stock")]
+    [HasPermission(Permissions.ProductsManage)]
     public async Task<IActionResult> UpdateProductStock(int id, [FromBody] UpdateProductStockDto dto, CancellationToken ct = default)
     {
         try

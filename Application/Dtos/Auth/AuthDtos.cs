@@ -18,17 +18,15 @@ namespace Application.Dtos.Auth
         string RefreshToken,
         DateTime RefreshTokenExpiresAt)
     {
+        public string TokenType => "Bearer";
         public override string ToString() => "TokenPairDto { }";
     }
 
-    public record CreateUserDto(string Login, string Password, string FullName, string RoleCode)
+    public record CurrentUserDto(int UserId, string RoleCode, IReadOnlyCollection<string> Permissions, string Login, string FullName)
     {
-        public override string ToString() => $"CreateUserDto {{ Login = {Login}, RoleCode = {RoleCode} }}";
+        public int Id => UserId;
+        public string Role => RoleCode;
     }
-
-    public record UserDto(int Id, string Login, string FullName, string RoleCode, bool IsActive);
-
-    public record CurrentUserDto(int UserId, string RoleCode, IReadOnlyCollection<string> Permissions);
 
     /// <summary>Minimal per-request identity data loaded from the DB (immediate revocation).</summary>
     public record AuthUserInfo(int Id, string RoleCode);

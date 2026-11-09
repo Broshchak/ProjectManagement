@@ -3,13 +3,17 @@ using System.ComponentModel.DataAnnotations;
 namespace Application.Dtos.Users;
 
 public sealed record UserDto(int Id, string Login, string FullName, string Role, bool IsActive,
-    bool TelegramAllowed, long? TelegramUserId);
+    bool TelegramAllowed, long? TelegramUserId)
+{
+    public string RoleCode => Role;
+}
 
 public class SaveUserDto
 {
     [Required, StringLength(100)] public string Login { get; set; } = "";
     [Required, StringLength(150)] public string FullName { get; set; } = "";
-    [Required] public string Role { get; set; } = "";
+    public string? Role { get; set; }
+    public string? RoleCode { get; set; }
     public bool IsActive { get; set; } = true;
     public bool TelegramAllowed { get; set; }
     [Range(1, long.MaxValue)] public long? TelegramUserId { get; set; }

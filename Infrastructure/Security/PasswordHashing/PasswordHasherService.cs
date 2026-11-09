@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text;
+using System.Security.Cryptography;
 using Application.Common.Exceptions;
 using Application.Common.Interfaces;
 using Microsoft.AspNetCore.Identity;
@@ -48,6 +49,9 @@ namespace Infrastructure.Security.PasswordHashing
         {
             if (string.IsNullOrEmpty(passwordHash) || passwordHash.Length > MaxStoredHashLength) return PasswordVerifyResult.Failed;
 
+            if (passwordHash.StartsWith("pbkdf2-sha256$", StringComparison.Ordinal))
+                return VerifyPreviousPbkdf2(passwordHash, password);
+
             // Old ASP.NET Identity V3 hash (base64, no leading '$'): verify on the raw password, then always migrate.
             if (passwordHash[0] != '$')
             {
@@ -81,6 +85,28 @@ namespace Infrastructure.Security.PasswordHashing
         }
 
         public void Dispose() => _memoryGate.Dispose();
+
+        private static PasswordVerifyResult VerifyPreviousPbkdf2(string hash, string password)
+        {
+            var parts = hash.Split('$');
+            if (parts.Length != 4 || !int.TryParse(parts[1], out var iterations) || iterations is < 1 or > 5_000_000)
+                return PasswordVerifyResult.Failed;
+
+            try
+            {
+                var salt = Convert.FromBase64String(parts[2]);
+                var expected = Convert.FromBase64String(parts[3]);
+                if (salt.Length != 16 || expected.Length != 32) return PasswordVerifyResult.Failed;
+                var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+                return CryptographicOperations.FixedTimeEquals(actual, expected)
+                    ? PasswordVerifyResult.SuccessRehashNeeded
+                    : PasswordVerifyResult.Failed;
+            }
+            catch (FormatException)
+            {
+                return PasswordVerifyResult.Failed;
+            }
+        }
 
         private PasswordVerifyResult VerifyLegacy(string passwordHash, string password)
         {

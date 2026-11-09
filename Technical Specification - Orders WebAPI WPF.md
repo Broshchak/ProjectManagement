@@ -64,7 +64,7 @@ Development should run in parallel inside each sprint:
 - report templates, a simple builder and server-generated PDF downloads for WPF and Telegram;
 - test delivery integration with Nova Poshta / Nova Post and LiqPay sandbox payments;
 - all database operations behind application interfaces; provider selection in server configuration;
-- PostgreSQL and a second database selected before implementation, with migrations and equivalent integration checks;
+- PostgreSQL accessed through application interfaces;
 - clear API errors, logging and tests of rules, permissions, retries and concurrency.
 
 ### Outside this release
@@ -166,6 +166,8 @@ Seed data must include:
 
 | Entity / table | Required data |
 | --- | --- |
+| RefreshSession / refresh_sessions | User/session, token hash, expiry, rotation and revocation |
+| TelegramLinkToken / telegram_link_tokens | User, token hash, expiry and one-time consumption |
 | RolePermission / role_permissions | Role and known permission code, unique pair |
 | Workflow / workflow_settings | Published revision |
 | WorkflowDraft / workflow_drafts | Draft document, version, editor, timestamp |
@@ -240,6 +242,33 @@ Publishing validates exactly one initial state, unique codes, references, reacha
 
 ## 10. WebAPI Requirements
 
+### Authentication and client session
+
+POST /api/auth/login accepts {login, password}; POST /api/auth/refresh accepts {refreshToken}. Both endpoints return the same JSON with two tokens and their individual expiration times:
+
+```json
+{
+  "accessToken": "<access-token>",
+  "accessTokenExpiresAt": "2026-10-25T10:15:00Z",
+  "refreshToken": "<refresh-token>",
+  "refreshTokenExpiresAt": "2026-11-08T10:00:00Z",
+  "tokenType": "Bearer"
+}
+```
+
+Use camelCase fields and UTC ISO 8601 timestamps including the time zone. Example dates are illustrative. Both expiration fields are required; clients use server-provided expiry instead of hard-coded TTLs. Every successful refresh rotates the refresh token and returns a new pair and both new expiration times. Store only the refresh-token hash, expiry and session state on the server. Retrieve the user profile through /api/auth/me.
+
+Update WPF DTOs, IAuthApiClient, HttpOrdersApiClient and session state together with the backend:
+
+- Keep both tokens and expiration times in memory. Do not retain the password. Send access as Bearer on business requests and refresh only to /api/auth/refresh.
+- Renew access early, for example 30 seconds before expiry. Concurrent calls share one in-flight refresh; replace the token pair and expiry values atomically.
+- Access expiry does not end a session with a valid refresh token. A 401 allows at most one refresh and one retry of a request rejected before execution. A 403 does not trigger refresh. Do not blindly replay writes after a timeout or unknown outcome.
+- Expired, revoked or rejected refresh ends the session: clear both tokens, expiry values and user data, then show login. Network failures do not start retry loops. Never automatically reuse an old refresh token after an uncertain rotation outcome.
+- Sign-out cancels requests and clears state. A late refresh response cannot restore a signed-out or replaced session. Refresh profile/permissions so WPF does not retain stale role information.
+- Never log tokens or persist them in ordinary files/settings. The Python bot consumes the same response format under the service-session rules of BOT_INTEGRATION.md.
+
+### Business APIs
+
 Keep authentication, current user, order/item/product/customer/user operations and JSON statistics. Business validation runs on the server; WPF and Telegram use the API only.
 
 | Area | Proposed endpoints |
@@ -262,7 +291,7 @@ Preserve WebApi, Application, Domain, Infrastructure, WpfClient, TelegramBot and
 
 Controllers and business services do not use DbContext, DbSet, IQueryable, SQL or Npgsql-specific exceptions. Infrastructure implements locking, shared transaction sessions, migrations and translation of provider errors to common conflicts. Reuse EF implementations where semantics match.
 
-Database:Provider and connection settings select the implementation at API startup. Switching requires restart, does not copy data and does not change business code or client contracts. PostgreSQL and a second chosen provider must pass equivalent integration scenarios; interfaces alone do not complete switching support.
+Database:Provider and connection settings select the implementation at API startup. Switching requires restart, does not copy data and does not change business code or client contracts. The supported database is PostgreSQL. Application interfaces isolate access to it.
 
 Use one workflow service, a small rule evaluator, one PDF service and external provider adapters. Keep new WPF view models separate. Microservices, a broker and a universal BPMN engine are unnecessary for this scope.
 
@@ -296,7 +325,17 @@ Keep workflow, roles and report-builder logic in separate small view models rath
 
 ## 12. Telegram Bot Requirements
 
-Support /start, /help, /stats, /orders_today and /report through WebAPI. /report downloads and sends the server-generated PDF. Server checks use the linked identity, current user/role activity and current permissions. A Telegram link alone does not bypass role blocking. Test payments and emulated shipments are clearly labelled.
+BOT_INTEGRATION.md in the external Documentation folder is the required integration contract; it describes target behaviour, not existing API implementation.
+
+The bot uses service account telegram-bot with protected system role TelegramBot. It can call only /api/bot/... plus /api/auth/login and /api/auth/refresh for authentication, and never obtains human administration rights. Access tokens last 15 minutes; refresh tokens last 14 days, rotate and revoke the session on replay. Store refresh/link-token hashes on the server. Validate current user/role state and credential changes. The bot keeps tokens in memory with single-flight refresh.
+
+Implement GET /api/bot/users/{id}, POST /api/bot/users/{id}/link, DELETE /api/bot/users/{id}/link and POST /api/bot/users/{id}/report. Desktop APIs create short-lived one-time link tokens and support authorised unlinking. Resolve current identity/permissions per message. Use camelCase JSON, permissions orders.read, reports.read, reports.telegram.send and telegram.link through one catalog, and application/problem+json errors with contract codes.
+
+Required commands: /start, /help, /me, /report, /unlink. Existing /stats and /orders_today require dedicated bot endpoints and permissions; the service token must not access ordinary business APIs. Reports support either {type: text, text: ...} or raw file bytes and Content-Disposition. Implement both branches; send server-generated PDF when available. No local fallback reports.
+
+The bot stores no users, roles or credentials on disk. API owns all bindings, permissions and business data; API never talks to Telegram or receives its bot token. Handle only private text from real users and trust only from.id. Stay silent to unlinked accounts except /start instructions. Send plain text within Telegram limits; never log credentials or link payloads.
+
+Verify TLS, do not forward tokens through redirects, and use bounded retries only for safe calls. Never automatically retry link redemption after timeout. Login limit: 5/minute/IP; redemption: 10/minute/Telegram id. Support a configured API-side IP allowlist. Prefer long polling; webhooks require secret-header validation and update-id deduplication. Deactivation/role blocks apply on the next API call even with an old JWT.
 
 ## 13. Epics
 
@@ -362,7 +401,7 @@ Expected result:
 
 ### Epic 7. System extension
 
-Complete persistence interfaces and a second provider; Admin-only role lifecycle and visibility management; dynamic workflow APIs and Admin/Director editor; concurrency-safe board drag-and-drop; server PDF/templates/builder; test delivery and payments; regression tests and documentation. Epics 1–6 describe the foundation; their fixed states and roles are initial defaults extended by sections 4–12.
+Complete interfaces for all PostgreSQL operations; Admin-only role lifecycle and visibility management; dynamic workflow APIs and Admin/Director editor; concurrency-safe board drag-and-drop; server PDF/templates/builder; test delivery and payments; regression tests and documentation. Epics 1–6 describe the foundation; their fixed states and roles are initial defaults extended by sections 4–12.
 
 ## 14. Sprint Plan
 
@@ -418,9 +457,9 @@ Initial Sprints 1–3 above cover the foundation. Add:
 | --- | --- |
 | A | Check provider access; persistence interfaces, migrations, current permissions, role/visibility management and workflow model/APIs |
 | B | WPF workflow editor, dynamic board and drag-and-drop, server PDF and report builder |
-| C | Delivery, payments, second-provider completion, end-to-end verification and documentation |
+| C | Delivery, payments, end-to-end verification and documentation |
 
-Estimate: 30–49 person-days on PostgreSQL, plus 4–8 for the second database; 34–57 total, excluding access delays. Allow a 20–30% learning-team contingency. Calendar sprint length depends on team availability. Verify external credentials at the beginning.
+Current scope estimate: 30–49 person-days on PostgreSQL, excluding access delays. Additional backend, WPF and bot refresh/link/security work requires an additional estimate and is not included in that previous total. Allow a 20–30% learning-team contingency. Calendar sprint length depends on team availability. Verify external credentials at the beginning.
 
 ## 15. Definition of Ready
 
@@ -502,5 +541,7 @@ The Trello board must follow Agile Scrum workflow and contain these columns:
 - Authorised users receive ready-made PDFs; Unicode fonts, multipage tables, dates and totals render correctly on the target host.
 - Test shipment creation avoids duplicates and supports reconciliation. Fake demonstrations are clearly distinguished from provider sandbox execution.
 - LiqPay sandbox success, failure, duplicate/invalid callback and reconciliation work with amount/currency checks. Test payments remain distinct; an invoice is not treated as proof of payment.
-- All persistence operations use interfaces. Both chosen providers pass equivalent transactions, rollback, concurrency, monetary precision and date scenarios without business-code changes.
+- All current PostgreSQL operations, including initial password seeding, use interfaces. Existing API/DTO contracts, transactions, rollback, concurrency, monetary precision and dates are verified on PostgreSQL.
+- Login and refresh return both tokens and both expiry times. WPF renews access without another password prompt, uses one refresh for concurrent calls, retains the rotated token, ends expired/revoked sessions and ignores late refresh after sign-out.
+- Bot API passes linking/replay/unlinking, refresh rotation, current-permission and deactivation scenarios from BOT_INTEGRATION.md; no plaintext server tokens or tokens on bot disk.
 - The solution builds; relevant automated/manual checks pass; API contracts, demonstration instructions and specification copies are consistent.

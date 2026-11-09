@@ -6,6 +6,9 @@ namespace Application.Security
         public const string OrdersRead = "orders.read";
         public const string OrdersCreate = "orders.create";
         public const string OrdersEdit = "orders.edit";
+        public const string UsersRead = "users.read";
+        public const string ProductsRead = "products.read";
+        public const string ProductsManage = "products.manage";
         public const string UsersManage = "users.manage";
         public const string ReportsRead = "reports.read";
         public const string ReportsTelegramSend = "reports.telegram.send";

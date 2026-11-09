@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using Application.Common.Interfaces;
 using Application.Dtos.Orders;
 using Domain.Entities;
@@ -47,7 +47,7 @@ namespace Application.Services
             {
                 if (!priceMap.ContainsKey(productId))
                 {
-                    throw new InvalidOperationException($"Price for Product ID {productId} was not found.");
+                    throw new ValidationException($"Price for Product ID {productId} was not found.");
                 }
             }
 

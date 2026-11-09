@@ -1,5 +1,6 @@
 using Application;
 using Infrastructure;
+using Infrastructure.Security;
 using Scalar.AspNetCore;
 using WebApi;
 using WebApi.Bot;
@@ -25,6 +26,9 @@ builder.Services.AddWebApiSecurity(builder.Configuration);
 builder.Services.AddBotIntegration(builder.Configuration);
 
 var app = builder.Build();
+
+if (builder.Configuration.GetSection("Seed:Passwords").GetChildren().Any())
+    await app.Services.SeedUserPasswordsAsync();
 
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
