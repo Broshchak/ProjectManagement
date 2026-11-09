@@ -9,15 +9,20 @@ namespace WebApi.Controllers;
 [Route("api/reports")]
 [ApiController]
 [HasPermission(Permissions.ReportsRead)]
-public class ReportsController(IReportService reports) : ControllerBase
+public class ReportsController(IReportService reports, IPermissionProvider permissions) : ControllerBase
 {
     [HttpGet("orders")]
     public async Task<ActionResult<OrderReportDto>> GetOrdersReport([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, CancellationToken ct = default) =>
         Ok(await reports.GetOrdersAsync(from, to, ct));
 
     [HttpGet("orders/today")]
-    public async Task<ActionResult<TodayOrdersReportDto>> GetTodayOrdersReport([FromQuery] DateTime? date = null, CancellationToken ct = default) =>
-        Ok(await reports.GetTodayOrdersAsync(date, ct));
+    public async Task<ActionResult<TodayOrdersReportDto>> GetTodayOrdersReport([FromQuery] DateTime? date = null, CancellationToken ct = default)
+    {
+        var report = await reports.GetTodayOrdersAsync(date, ct);
+        if (await permissions.HasPermissionAsync(User.FindFirst(AppClaims.Role)!.Value, Permissions.CustomersRead, ct))
+            return Ok(report);
+        return Ok(report with { Orders = report.Orders.Select(o => o with { CustomerFullName = "" }).ToArray() });
+    }
 
     [HttpGet("products")]
     public async Task<ActionResult<IReadOnlyCollection<ProductSalesReportItemDto>>> GetProductsReport([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, CancellationToken ct = default) =>

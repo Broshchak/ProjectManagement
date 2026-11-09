@@ -73,7 +73,7 @@
 
             <Border Grid.Column="0" Background="#17202B">
                 <DockPanel Margin="18">
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
                         <Button Command="{Binding SignOutCommand}"
                             Content="{Binding Path=T[SignOut]}"
                             Width="78"
@@ -84,7 +84,12 @@
                             Foreground="#FFFFFF"
                             BorderBrush="#3B4754"
                             Cursor="Hand" />
-                    </Grid>
+                        <Button Style="{StaticResource NavigationButtonStyle}" Margin="0,8,0,0"
+                            Command="{Binding LinkTelegramCommand}" Content="{Binding Path=T[LinkTelegram]}"
+                            Visibility="{Binding CanLinkTelegram, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Button Style="{StaticResource NavigationButtonStyle}" Margin="0,8,0,0"
+                            Command="{Binding RefreshDataCommand}" Content="{Binding Path=T[Refresh]}" />
+                    </StackPanel>
 
                     <ItemsControl ItemsSource="{Binding NavigationItems}">
                         <ItemsControl.ItemTemplate>

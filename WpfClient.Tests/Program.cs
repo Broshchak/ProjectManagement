@@ -244,6 +244,19 @@ internal static class Program
                 "Late refresh overwrote the new session");
         });
 
+        await Test("Telegram linking posts to the API and rejects links outside HTTPS t.me", async () =>
+        {
+            using Fake valid = new(_ => Json("""{"url":"https://t.me/OrdersTestBot?start=example"}"""));
+            var url = await valid.Client.CreateTelegramLinkAsync();
+            Check(url.Host == "t.me" && valid.Paths.Single() == "/api/telegram/link" &&
+                valid.Methods.Single() == "POST", "Wrong link or endpoint");
+
+            using Fake invalid = new(_ => Json("""{"url":"https://t.me.untrusted.example/OrdersTestBot"}"""));
+            try { await invalid.Client.CreateTelegramLinkAsync(); }
+            catch (InvalidOperationException) { return; }
+            throw new Exception("Unsafe link accepted");
+        });
+
         await Test("quantity replacement uses a single versioned PUT and never DELETE/POST", async () =>
         {
             using Fake server = new(_ => Json(Detail(1)));
@@ -307,6 +320,68 @@ internal static class Program
             vm.ReportDateFrom = vm.ReportDateFrom.AddDays(1);
             gate.SetResult();
             Check(!await pending && !vm.HasLoadedReports, "Stale response published");
+        });
+
+        await Test("navigation and cached report data follow refreshed API permissions", async () =>
+        {
+            bool revoked = false;
+            using Fake server = new(r =>
+            {
+                string path = r.RequestUri!.AbsolutePath;
+                return path switch
+                {
+                    "/api/auth/login" => Json("""{"accessToken":"access","accessTokenExpiresAt":"2099-10-25T12:00:00Z"}"""),
+                    "/api/auth/me" => Json("""{"id":42,"login":"custom","fullName":"Observer","role":"Custom","permissions":["orders.read","reports.read","products.read"]}"""),
+                    "/api/auth/me/permissions" => revoked
+                        ? Json("""{"role":"Custom","revision":2,"permissions":["products.read"]}""")
+                        : Json("""{"role":"Custom","revision":1,"permissions":["orders.read","reports.read","products.read"]}"""),
+                    "/api/orders" => Json(Orders),
+                    "/api/orders/1" => Json(Detail(1)),
+                    "/api/products" => Json(Products),
+                    "/api/reports/orders" when revoked => Json("{}", HttpStatusCode.Forbidden),
+                    _ => Reports(path)
+                };
+            });
+            var vm = new MainViewModel(new ApiClientSettings { UseMockData = false }, server.Client) { LoginName = "custom" };
+            Check(await vm.SignInAsync("password"), "Could not sign in with a custom role");
+            Check(vm.NavigationItems.Select(n => n.Key).SequenceEqual(new[] { "Orders", "Products", "Reports" }) &&
+                vm.Orders.Count > 0 && vm.HasLoadedReports && !vm.CanManageOrders && !vm.CanManageProducts,
+                "Visibility or write controls ignored the server snapshot");
+
+            vm.NavigateCommand.Execute(vm.NavigationItems.Single(n => n.Key == "Reports"));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(vm.SelectedItem.Key == "Reports", "Reports view did not open");
+            revoked = true;
+            try { await server.Client.GetOrdersReportAsync(); }
+            catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden) { }
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(vm.NavigationItems.Select(n => n.Key).SequenceEqual(new[] { "Products" }) &&
+                vm.SelectedItem.Key == "Products" && vm.Orders.Count == 0 && vm.SelectedOrderDetails is null &&
+                !vm.HasLoadedReports && !vm.CanViewReports, "Revoked data or navigation remained visible");
+        });
+
+        await Test("role editor sends checked sections and uses the returned revision", async () =>
+        {
+            const string permissions = "/api/roles/7/permissions";
+            using Fake server = new(r => r.RequestUri!.AbsolutePath switch
+            {
+                "/api/roles" => Json("""[{"id":7,"code":"Observer","name":"Observer","isActive":true,"isSystem":false,"version":3}]"""),
+                "/api/permissions" => Json("""[{"code":"orders.read"},{"code":"board.read","requires":"orders.read"},{"code":"reports.read"}]"""),
+                "/api/roles/permissions" => Json("""[{"roleId":7,"revision":3,"permissions":["orders.read"]}]"""),
+                permissions => Json("""{"roleId":7,"revision":4,"permissions":["orders.read","reports.read"]}"""),
+                _ => Json("{}", HttpStatusCode.NotFound)
+            });
+            var changed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var editor = new RoleAccessViewModel(server.Client, () => { changed.TrySetResult(true); return Task.CompletedTask; });
+            await editor.LoadAsync();
+            Check(editor.SelectedRole?.Version == 3 && editor.Choices.Single(c => c.Code == "orders.read").Enabled, "Matrix was not loaded");
+            editor.Choices.Single(c => c.Code == "reports.read").Enabled = true;
+            editor.SaveVisibilityCommand.Execute(null);
+            await changed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var body = server.Bodies.Last()!;
+            Check(server.Paths.Last() == permissions && server.Methods.Last() == "PUT" &&
+                body.Contains("\"expectedRevision\":3") && body.Contains("\"reports.read\"") &&
+                editor.SelectedRole?.Version == 4, "Wrong save payload or stale revision");
         });
 
         await Test("role matrix exposes Director product management and Manager product view", () =>
@@ -512,6 +587,7 @@ internal static class Program
             Directory.CreateDirectory(folder);
             Render(new LoginView { DataContext = vm }, Path.Combine(folder, "login.png"), 1000, 800);
             Render(new UsersView { DataContext = vm }, Path.Combine(folder, "users.png"), 1000, 500);
+            Render(new RoleAccessView { DataContext = new RoleAccessViewModel(server.Client, () => Task.CompletedTask) }, Path.Combine(folder, "roles.png"), 1000, 700);
             Render(new ReportsView { DataContext = vm }, Path.Combine(folder, "reports-empty.png"), 1280, 720);
             await Call<bool>(vm, "LoadReportsAsync");
             Render(new ReportsView { DataContext = vm }, Path.Combine(folder, "reports-loaded.png"), 1280, 720);

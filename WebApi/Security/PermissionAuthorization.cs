@@ -21,7 +21,8 @@ namespace WebApi.Security
             var role = context.User.FindFirst(AppClaims.Role)?.Value;
             if (role is null) return;
 
-            if (await permissions.HasPermissionAsync(role, requirement.Permission))
+            var ct = (context.Resource as HttpContext)?.RequestAborted ?? CancellationToken.None;
+            if (await permissions.HasPermissionAsync(role, requirement.Permission, ct))
             {
                 context.Succeed(requirement);
             }

@@ -1,5 +1,6 @@
 using Application.Common.Interfaces;
 using Application.Dtos.Auth;
+using Application.Security;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using UserDetails = Application.Dtos.Users.UserDto;
@@ -20,8 +21,14 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
     public Task<AuthUserInfo?> GetActiveAuthInfoAsync(int userId, CancellationToken ct = default) =>
         (from user in db.Set<AppUserEntity>().AsNoTracking()
          join role in db.Set<RoleEntity>().AsNoTracking() on user.RoleId equals role.Id
-         where user.Id == userId && user.IsActive
+         where user.Id == userId && user.IsActive && role.IsActive
          select new AuthUserInfo(user.Id, role.Code)).FirstOrDefaultAsync(ct);
+
+    public Task<bool> IsLastActiveAdminAsync(int userId, CancellationToken ct = default)
+    {
+        var activeAdmins = db.Set<AppUserEntity>().Where(u => u.IsActive && u.Role.Code == Roles.Admin);
+        return activeAdmins.AnyAsync(u => u.Id == userId && !activeAdmins.Any(other => other.Id != userId), ct);
+    }
 
     public async Task<IReadOnlyList<UserDetails>> GetAllAsync(CancellationToken ct = default) =>
         await Details(db.Set<AppUserEntity>().OrderBy(u => u.FullName)).ToListAsync(ct);

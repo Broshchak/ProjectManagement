@@ -54,6 +54,11 @@ namespace WebApi.Controllers
                 : InvalidCredentials();
         }
 
+        [HttpGet("me/permissions")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        public async Task<IActionResult> MyPermissions(CancellationToken ct) =>
+            Ok(await permissions.GetSnapshotAsync(User.FindFirst(AppClaims.Role)!.Value, ct));
+
         // One generic answer for every failure: wrong password, unknown login, inactive user, bad token.
         private ObjectResult InvalidCredentials() =>
             Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Invalid credentials.");

@@ -13,7 +13,12 @@ public sealed class UserManagementService(IUserRepository users, IPasswordHasher
     public Task<IReadOnlyList<UserDto>> GetAllAsync(CancellationToken ct = default) => users.GetAllAsync(ct);
     public Task<UserDto?> GetAsync(int id, CancellationToken ct = default) => users.GetDetailsAsync(id, ct);
 
-    public async Task<UserDto?> SaveAsync(int? id, SaveUserDto request, string? password, CancellationToken ct = default)
+    public Task<UserDto?> SaveAsync(int? id, SaveUserDto request, string? password, CancellationToken ct = default) =>
+        id.HasValue
+            ? unitOfWork.InTransactionAsync(token => SaveCoreAsync(id, request, password, token), ct)
+            : SaveCoreAsync(id, request, password, ct);
+
+    private async Task<UserDto?> SaveCoreAsync(int? id, SaveUserDto request, string? password, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Login) || string.IsNullOrWhiteSpace(request.FullName) ||
             (!id.HasValue && string.IsNullOrWhiteSpace(password)))
@@ -32,6 +37,11 @@ public sealed class UserManagementService(IUserRepository users, IPasswordHasher
             ?? throw new ValidationException("Unknown role.");
         var user = id.HasValue ? await users.FindAsync(id.Value, ct) : new AppUserEntity();
         if (user is null) return null;
+        if (!role.IsActive && (!id.HasValue || user.RoleId != role.Id))
+            throw new ValidationException("A blocked role cannot be assigned.");
+        if (id.HasValue && (!request.IsActive || user.RoleId != role.Id) &&
+            await users.IsLastActiveAdminAsync(id.Value, ct))
+            throw new DataConflictException("The last active administrator cannot be disabled or reassigned.");
         user.Login = login;
         user.FullName = request.FullName.Trim();
         user.RoleId = role.Id;
@@ -40,10 +50,9 @@ public sealed class UserManagementService(IUserRepository users, IPasswordHasher
         user.TelegramUserId = request.TelegramUserId;
         if (password is not null) user.PasswordHash = await hasher.HashAsync(password, ct);
         if (!id.HasValue) await users.AddAsync(user, ct);
+        await unitOfWork.SaveChangesAsync(ct);
         if (id.HasValue && !user.IsActive)
-            await SaveAndRevokeAsync(user.Id, ct);
-        else
-            await unitOfWork.SaveChangesAsync(ct);
+            await refreshTokens.RevokeAllForUserAsync(user.Id, DateTime.UtcNow, ct);
         return await users.GetDetailsAsync(user.Id, ct);
     }
 

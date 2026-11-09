@@ -8,16 +8,14 @@ namespace WebApi.Controllers;
 
 [ApiController]
 [Route("api/customers")]
-
+[HasPermission(Permissions.CustomersRead)]
 public sealed class CustomersController(ICustomerService customers) : ControllerBase
 {
     [HttpGet]
-    [HasPermission(Permissions.OrdersRead)]
     public async Task<ActionResult<IReadOnlyList<CustomerDto>>> GetCustomers(CancellationToken ct) =>
         Ok(await customers.GetAllAsync(ct));
 
     [HttpGet("{id:int}")]
-    [HasPermission(Permissions.OrdersRead)]
     public async Task<ActionResult<CustomerDto>> GetCustomer(int id, CancellationToken ct)
     {
         var customer = await customers.GetAsync(id, ct);

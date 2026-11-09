@@ -33,7 +33,8 @@ namespace Application.Services
             }
 
             var result = await hasher.VerifyAsync(user.PasswordHash, password, ct);
-            if (result == PasswordVerifyResult.Failed || !user.IsActive)
+            if (result == PasswordVerifyResult.Failed || !user.IsActive ||
+                await users.GetActiveAuthInfoAsync(user.Id, ct) is null)
             {
                 return null;
             }

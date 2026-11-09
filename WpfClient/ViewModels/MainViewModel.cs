@@ -18,6 +18,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IOrdersApiClient _apiClient;
     private readonly ApiClientSettings _apiSettings;
     private readonly IReadOnlyList<NavigationItem> _allNavigationItems;
+    private readonly NavigationItem _noAccessPage = new("NoAccess", "NoSectionAccess", new UserControl(), []);
+    private readonly RoleAccessViewModel? _roleEditor;
+    private HashSet<string>? _permissions;
+    private Task<bool>? _permissionRefresh;
+    private IReadOnlyList<string> _roleOptions = ["Admin", "Manager", "Viewer", "Director"];
     private readonly List<OrderListItem> _allOrders = [];
     private readonly List<ProductListItem> _allProducts = [];
     private readonly ObservableCollection<TestUser> _serverUsers = [];
@@ -107,6 +112,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _apiSettings = settings;
         _apiClient = client ?? OrdersApiClientFactory.Create(_apiSettings);
         if (_apiClient is HttpOrdersApiClient http)
+        {
+            http.AccessDenied += OnAccessDenied;
             http.SessionExpired += () =>
             {
                 void EndSession()
@@ -118,6 +125,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     dispatcher.Invoke(EndSession);
                 else EndSession();
             };
+        }
         _selectedLanguage = LanguageOptions[0];
         T.PropertyChanged += (_, _) => RefreshLanguageText();
 
@@ -129,7 +137,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             new("director", "Company Director", "Director", "director")
         };
 
-        _allNavigationItems = new[]
+        if (_apiClient is IRoleAccessApiClient roles)
+            _roleEditor = new RoleAccessViewModel(roles, RefreshAfterRoleEditAsync);
+
+        var navigation = new List<NavigationItem>
         {
             new NavigationItem("Dashboard", "NavDashboard", new DashboardView(), new[] { "Admin", "Viewer", "Director" }),
             new NavigationItem("Orders", "NavOrders", new OrdersView(), new[] { "Admin", "Manager", "Viewer", "Director" }),
@@ -139,18 +150,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             new NavigationItem("Reports", "NavReports", new ReportsView(), new[] { "Admin", "Viewer", "Director" })
         };
 
+        if (_roleEditor is not null)
+            navigation.Add(new("Roles", "NavRoles", new RoleAccessView { DataContext = _roleEditor }, []));
+        _allNavigationItems = navigation;
+
         NavigationItems = new ObservableCollection<NavigationItem>();
         EditableOrderItems.CollectionChanged += EditableOrderItems_CollectionChanged;
 
-        NavigateCommand = new RelayCommand(item =>
+        NavigateCommand = new RelayCommand(async item =>
         {
-            if (item is NavigationItem navigationItem)
-            {
-                SelectedItem = navigationItem;
-            }
+            if (item is not NavigationItem target || !await RefreshAccessAsync() || !NavigationItems.Contains(target)) return;
+            SelectedItem = target;
+            if (target.Key == "Roles" && _roleEditor is not null) await _roleEditor.LoadAsync();
         });
 
         SignOutCommand = new RelayCommand(_ => SignOut(), _ => IsAuthenticated);
+        LinkTelegramCommand = new RelayCommand(async _ => await LinkTelegramAsync(),
+            _ => CanLinkTelegram && !_telegramLinkPending);
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(), _ => IsAuthenticated && !IsLoading);
         RefreshReportsCommand = new RelayCommand(async _ => await LoadReportsAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
         ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
@@ -162,7 +178,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChangeOrderStatusCommand = new RelayCommand(
             async action => await ChangeOrderStatusAsync(action as string),
             action => CanExecuteOrderStatusAction(action as string));
-        BeginCreateOrderCommand = new RelayCommand(_ => BeginCreateOrder(), _ => CanManageOrders && !IsLoading && Products.Any(p => p.IsActive));
+        BeginCreateOrderCommand = new RelayCommand(_ => BeginCreateOrder(), _ => CanCreateOrders && !IsLoading && Products.Any(p => p.IsActive));
         OpenOrderEditorCommand = new RelayCommand(_ => OpenOrderEditor(), _ => CanEditSelectedOrder);
         OpenSelectOrderCustomerCommand = new RelayCommand(_ => OpenSelectOrderCustomerDialog(), _ => IsCreatingOrder);
         OpenAddOrderProductCommand = new RelayCommand(_ => OpenAddOrderProductDialog(), _ => CanEditOrderDraft && Products.Count > 0);
@@ -238,13 +254,40 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsEditingUser => _isEditingUser;
     public ObservableCollection<TestUser> TestUsers { get; }
 
-    public IReadOnlyList<string> RoleOptions { get; } = ["Admin", "Manager", "Viewer", "Director"];
+    public IReadOnlyList<string> RoleOptions => _roleOptions;
 
     public ObservableCollection<string> OrderStatusFilterOptions { get; } = [];
 
     public ICommand NavigateCommand { get; }
 
     public ICommand SignOutCommand { get; }
+    public ICommand LinkTelegramCommand { get; }
+    public bool CanLinkTelegram => IsAuthenticated && _apiClient is ITelegramLinkApiClient &&
+        Can("telegram.link", CurrentRoleName is "Admin" or "Director");
+    private bool _telegramLinkPending;
+
+    private async Task LinkTelegramAsync()
+    {
+        if (_apiClient is not ITelegramLinkApiClient telegram || _telegramLinkPending) return;
+        int session = _sessionVersion;
+        _telegramLinkPending = true;
+        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            Uri link = await telegram.CreateTelegramLinkAsync();
+            if (session == _sessionVersion && IsAuthenticated)
+                Process.Start(new ProcessStartInfo { FileName = link.AbsoluteUri, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            if (session == _sessionVersion) ApiErrorMessage = ex is ApiException ? ex.Message : T["TelegramLinkInvalid"];
+        }
+        finally
+        {
+            _telegramLinkPending = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
 
     public ICommand RefreshDataCommand { get; }
 
@@ -1267,13 +1310,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsOrderEditorEnabled => !_isOrderSaving;
     public string OrderEditCapabilities => T[IsMockMode ? "MockData" : IsCreatingOrder ? (_customersAvailable ? "CustomerApiReady" : "CustomerApiLimited") : CanUseAtomicOrderEdit ? "OrderApiReady" : "OrderApiLimited"];
     public string UsersUnavailableText => _usersLoadError ?? T["UsersApiUnavailable"];
-    public bool CanManageOrders => IsAuthenticated && (CurrentRoleName is "Admin" or "Manager" or "Director");
+    public bool CanManageOrders => IsAuthenticated && Can("orders.edit", CurrentRoleName is "Admin" or "Manager" or "Director");
+    public bool CanCreateOrders => IsAuthenticated && Can("orders.create", CanManageOrders);
 
-    public bool CanManageProducts => IsAuthenticated && !IsLoading && (CurrentRoleName is "Admin" or "Director");
+    public bool CanManageProducts => IsAuthenticated && !IsLoading && Can("products.manage", CurrentRoleName is "Admin" or "Director");
 
-    public bool CanManageUsers => IsAuthenticated && IsUserManagementAvailable && !_isUserSaving && CurrentRoleName is "Admin";
+    public bool CanManageUsers => IsAuthenticated && IsUserManagementAvailable && !_isUserSaving && Can("users.manage", CurrentRoleName is "Admin");
 
-    public bool CanViewReports => IsAuthenticated && (CurrentRoleName is "Admin" or "Viewer" or "Director");
+    public bool CanViewReports => IsAuthenticated && Can("reports.read", CurrentRoleName is "Admin" or "Viewer" or "Director");
 
     public async Task<bool> SignInAsync(string password)
     {
@@ -1315,16 +1359,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             LoginError = null;
             IsAuthenticated = true;
+            _permissions = (user.Permissions ?? []).ToHashSet(StringComparer.Ordinal);
             _currentUserId = user.Id;
             CurrentUserName = user.FullName;
             CurrentRoleName = user.Role;
-
-            if (NavigationItems.Count > 0)
-            {
-                SelectedItem = NavigationItems[0];
-            }
+            RefreshNavigationItems();
 
             await LoadClientDataAsync();
+            if (SelectedItem.Key == "Roles" && _roleEditor is not null) await _roleEditor.LoadAsync();
             return IsAuthenticated;
         }
         catch (Exception exception)
@@ -1379,6 +1421,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _sessionVersion++;
         _currentUserId = 0;
+        _permissions = null;
+        _permissionRefresh = null;
+        _roleEditor?.Reset();
+        _roleOptions = ["Admin", "Manager", "Viewer", "Director"];
+        OnPropertyChanged(nameof(RoleOptions));
         _serverUsers.Clear();
         _usersAvailable = false;
         _customersAvailable = false;
@@ -1425,21 +1472,138 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedItem = _allNavigationItems[0];
     }
 
+    private bool Can(string code, bool legacy = false) => _permissions?.Contains(code) ?? legacy;
+
     private void RefreshNavigationItems()
     {
         NavigationItems.Clear();
-
-        foreach (NavigationItem item in _allNavigationItems.Where(item => item.IsAllowedFor(CurrentRoleName ?? string.Empty)))
+        foreach (var item in _allNavigationItems)
         {
-            NavigationItems.Add(item);
+            var code = item.Key switch
+            {
+                "Dashboard" => "dashboard.read",
+                "Orders" => "orders.read",
+                "Kanban" => "board.read",
+                "Products" => "products.read",
+                "Users" => "users.read",
+                "Reports" => "reports.read",
+                "Roles" => "roles.manage",
+                _ => ""
+            };
+            if (Can(code, item.IsAllowedFor(CurrentRoleName ?? ""))) NavigationItems.Add(item);
         }
+        if (!NavigationItems.Contains(SelectedItem))
+            SelectedItem = NavigationItems.FirstOrDefault() ?? _noAccessPage;
+    }
+
+    private void OnAccessDenied()
+    {
+        // Do not run another HTTP request on the failing request's continuation.
+        if (Application.Current?.Dispatcher is { } dispatcher)
+            _ = dispatcher.BeginInvoke(new Action(async () => await RefreshAccessAsync()));
+    }
+
+    private Task<bool> RefreshAccessAsync()
+    {
+        if (!IsAuthenticated) return Task.FromResult(false);
+        if (_permissions is null || _apiClient is not IRoleAccessApiClient api) return Task.FromResult(true);
+        return _permissionRefresh is { IsCompleted: false } pending
+            ? pending
+            : _permissionRefresh = RefreshAccessCoreAsync(api);
+    }
+
+    private async Task<bool> RefreshAccessCoreAsync(IRoleAccessApiClient api)
+    {
+        int session = _sessionVersion;
+        try
+        {
+            var access = await api.GetMyAccessAsync();
+            if (session != _sessionVersion || !IsAuthenticated) return false;
+            var next = access.Permissions.ToHashSet(StringComparer.Ordinal);
+            var previous = _permissions ?? [];
+            if (previous.SetEquals(next) && CurrentRoleName == access.Role) return true;
+
+            var lost = previous.Except(next).ToHashSet(StringComparer.Ordinal);
+            _permissions = next;
+            _sessionVersion++; // Discard late data from requests started under the previous access snapshot.
+            IsLoading = false;
+            IsOrderDetailsLoading = false;
+            if (lost.Contains("orders.read") || lost.Contains("customers.read"))
+            {
+                _allOrders.Clear();
+                Orders.Clear();
+                ClearKanbanColumns();
+                SelectedOrder = null;
+                SelectedOrderDetails = null;
+                SelectedOrderCustomer = null;
+                EditableOrderItems.Clear();
+                IsCreatingOrder = false;
+            }
+            if (lost.Contains("customers.read"))
+            {
+                Customers.Clear();
+                _customersAvailable = false;
+            }
+            if (lost.Contains("orders.edit"))
+            {
+                IsCreatingOrder = false;
+                EditableOrderItems.Clear();
+                SelectedOrderCustomer = null;
+            }
+            if (lost.Contains("products.read"))
+            {
+                _allProducts.Clear();
+                Products.Clear();
+                FilteredProducts.Clear();
+                SelectedProduct = SelectedOrderItemProduct = null;
+            }
+            if (lost.Contains("products.manage")) CloseProductEditor();
+            if (lost.Contains("users.read"))
+            {
+                _serverUsers.Clear();
+                SelectedUser = null;
+                _usersAvailable = false;
+            }
+            if (lost.Contains("users.manage")) CloseUserEditor();
+            if (lost.Contains("roles.manage")) _roleEditor?.Reset();
+            if (lost.Contains("reports.read") || lost.Contains("customers.read")) InvalidateReports();
+            Summary = BuildReportSummary(_allOrders, _allProducts);
+
+            CurrentRoleName = access.Role;
+            RefreshNavigationItems();
+            NotifyManagement();
+            OnPermissionPropertiesChanged();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            if (session == _sessionVersion && IsAuthenticated) ApiErrorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    private async Task RefreshAfterRoleEditAsync()
+    {
+        if (!await RefreshAccessAsync() || !IsAuthenticated) return;
+        await LoadRoleOptionsAsync(_sessionVersion);
+    }
+
+    private async Task LoadRoleOptionsAsync(int session)
+    {
+        if (_permissions is null || !Can("roles.manage") || _apiClient is not IRoleAccessApiClient roles) return;
+        var available = await roles.GetRolesAsync();
+        if (session != _sessionVersion || !IsAuthenticated) return;
+        _roleOptions = available.Where(role => role.IsActive && role.Code != "TelegramBot").Select(role => role.Code).ToArray();
+        OnPropertyChanged(nameof(RoleOptions));
     }
 
     private void OnPermissionPropertiesChanged()
     {
         OnPropertyChanged(nameof(CanManageOrders));
+        OnPropertyChanged(nameof(CanCreateOrders));
         OnPropertyChanged(nameof(CanManageProducts));
         OnPropertyChanged(nameof(CanManageUsers));
+        OnPropertyChanged(nameof(CanLinkTelegram));
         OnPropertyChanged(nameof(CanViewReports));
         OnPropertyChanged(nameof(CanEditSelectedOrder));
         OnOrderStatusActionPropertiesChanged();
@@ -1501,7 +1665,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task LoadClientDataAsync()
     {
-        if (IsLoading || !IsAuthenticated) return;
+        if (IsLoading || !IsAuthenticated || !await RefreshAccessAsync() || IsLoading) return;
         int session = _sessionVersion;
         IsLoading = true;
         ApiErrorMessage = null;
@@ -1509,14 +1673,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             int? selectedOrderId = SelectedOrder?.Id;
-            IReadOnlyList<OrderListItem> orders = await _apiClient.GetOrdersAsync();
+            IReadOnlyList<OrderListItem> orders = Can("orders.read", true) ? await _apiClient.GetOrdersAsync() : [];
             if (session != _sessionVersion || !IsAuthenticated) return;
             IReadOnlyList<ProductListItem> products;
             string? productLoadError = null;
 
             try
             {
-                products = await _apiClient.GetProductsAsync();
+                products = Can("products.read", true) ? await _apiClient.GetProductsAsync() : [];
             }
             catch (Exception exception)
             {
@@ -1532,15 +1696,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             ApplyOrderFilters();
             ApplyKanbanFilters();
-            RefreshCustomersFromOrders(_allOrders);
+            if (Can("customers.read", true)) RefreshCustomersFromOrders(_allOrders);
             if (_apiClient is IManagementApiClient management)
             {
                 try
                 {
-                    var customers = await management.GetCustomersAsync();
+                    var customers = Can("customers.read", true) ? await management.GetCustomersAsync() : [];
                     if (session != _sessionVersion) return;
                     ReplaceCollection(Customers, customers);
-                    _customersAvailable = true;
+                    _customersAvailable = Can("customers.read", true);
                 }
                 catch (Exception ex)
                 {
@@ -1549,7 +1713,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     ApiErrorMessage = T["CustomersLoadFailed"] + " " + ex.Message;
                 }
                 NotifyManagement();
-                if (CurrentRoleName is "Admin" or "Director") await LoadUsersAsync(management, session);
+                if (Can("users.read", CurrentRoleName is "Admin" or "Director")) await LoadUsersAsync(management, session);
+                await LoadRoleOptionsAsync(session);
             }
             if (session != _sessionVersion || !IsAuthenticated) return;
             OrderListItem? nextSelectedOrder = Orders.FirstOrDefault(order => order.Id == selectedOrderId)
@@ -1811,7 +1976,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void BeginCreateOrder()
     {
-        if (!CanManageOrders || IsLoading || !Products.Any(p => p.IsActive)) return;
+        if (!CanCreateOrders || IsLoading || !Products.Any(p => p.IsActive)) return;
         IsCreatingOrder = true;
         OrderNumber = $"ORD-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}";
         OrderComment = string.Empty;

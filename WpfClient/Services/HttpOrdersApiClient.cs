@@ -8,13 +8,14 @@ using WpfClient.Models;
 
 namespace WpfClient.Services;
 
-public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient, IAuthApiClient, IManagementApiClient, IOrderEditingApiClient
+public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClient, IAuthApiClient, IManagementApiClient, IOrderEditingApiClient, ITelegramLinkApiClient, IRoleAccessApiClient
 {
     private readonly object _sessionLock = new();
     private readonly SemaphoreSlim _refreshGate = new(1);
     private CancellationTokenSource _session = new();
     private LoginResponse? _tokens;
     public event Action? SessionExpired;
+    public event Action? AccessDenied;
 
     public async Task<AuthenticatedUser> SignInAsync(string login, string password, CancellationToken cancellationToken = default)
     {
@@ -35,6 +36,7 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
                 Login = user.Login,
                 FullName = user.FullName,
                 Role = user.Role,
+                Permissions = user.Permissions,
                 Id = user.Id,
                 AccessTokenExpiresAt = GetTokens(session)?.AccessTokenExpiresAt
             };
@@ -44,6 +46,56 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             ResetSession(session);
             throw;
         }
+    }
+
+    public async Task<Uri> CreateTelegramLinkAsync(CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, "api/telegram/link", null, ct);
+        var link = await response.Content.ReadFromJsonAsync<TelegramLinkResponse>(ct);
+        if (!Uri.TryCreate(link?.Url, UriKind.Absolute, out var url) ||
+            url.Scheme != Uri.UriSchemeHttps || url.Host != "t.me" || !url.IsDefaultPort || url.UserInfo.Length != 0)
+            throw new InvalidOperationException(LocalizationManager.Instance["TelegramLinkInvalid"]);
+        return url;
+    }
+
+    private sealed record TelegramLinkResponse(string Url);
+
+    public async Task<AccessSnapshot> GetMyAccessAsync(CancellationToken ct = default) =>
+        await GetJsonAsync<AccessSnapshot>("api/auth/me/permissions", ct)
+        ?? throw new InvalidOperationException("API did not return current permissions.");
+
+    public async Task<IReadOnlyList<RoleInfo>> GetRolesAsync(CancellationToken ct = default) =>
+        await GetJsonAsync<List<RoleInfo>>("api/roles", ct) ?? [];
+
+    public async Task<IReadOnlyList<PermissionOption>> GetPermissionCatalogAsync(CancellationToken ct = default) =>
+        await GetJsonAsync<List<PermissionOption>>("api/permissions", ct) ?? [];
+
+    public async Task<IReadOnlyList<RoleVisibility>> GetRoleVisibilityAsync(CancellationToken ct = default) =>
+        await GetJsonAsync<List<RoleVisibility>>("api/roles/permissions", ct) ?? [];
+
+    public Task<RoleInfo> CreateRoleAsync(string code, string name, CancellationToken ct = default) =>
+        SaveRoleAsync<RoleInfo>(HttpMethod.Post, "api/roles", new { code, name }, ct);
+
+    public Task<RoleInfo> RenameRoleAsync(int id, string name, long version, CancellationToken ct = default) =>
+        SaveRoleAsync<RoleInfo>(HttpMethod.Put, $"api/roles/{id}", new { name, expectedVersion = version }, ct);
+
+    public Task<RoleInfo> SetRoleActiveAsync(int id, bool active, long version, CancellationToken ct = default) =>
+        SaveRoleAsync<RoleInfo>(HttpMethod.Put, $"api/roles/{id}/active", new { isActive = active, expectedVersion = version }, ct);
+
+    public async Task DeleteRoleAsync(int id, long version, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Delete, $"api/roles/{id}", null, ct,
+            request => request.Headers.IfMatch.Add(new EntityTagHeaderValue($"\"{version.ToString(CultureInfo.InvariantCulture)}\"")));
+    }
+
+    public Task<RoleVisibility> SaveRoleVisibilityAsync(int id, long revision, IReadOnlyList<string> permissions, CancellationToken ct = default) =>
+        SaveRoleAsync<RoleVisibility>(HttpMethod.Put, $"api/roles/{id}/permissions", new { expectedRevision = revision, permissions }, ct);
+
+    private async Task<T> SaveRoleAsync<T>(HttpMethod method, string path, object body, CancellationToken ct) where T : class
+    {
+        using var response = await SendAsync(method, path, JsonContent.Create(body), ct);
+        return await response.Content.ReadFromJsonAsync<T>(ct)
+            ?? throw new InvalidOperationException("API did not return the saved role.");
     }
 
     public void SignOut() => ResetSession();
@@ -478,7 +530,8 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
     private Task<HttpResponseMessage> GetAsync(string path, CancellationToken ct) => SendAsync(HttpMethod.Get, path, null, ct);
     private Task<HttpResponseMessage> DeleteAsync(string path, CancellationToken ct) => SendAsync(HttpMethod.Delete, path, null, ct);
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? body, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? body, CancellationToken ct,
+        Action<HttpRequestMessage>? configure = null)
     {
         using var content = body;
         CancellationToken session;
@@ -509,6 +562,8 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
                 ResetSession(session, expired: true);
+            if (response.StatusCode == HttpStatusCode.Forbidden && path != "api/auth/me/permissions" && !session.IsCancellationRequested)
+                AccessDenied?.Invoke();
             await EnsureSuccessWithApiMessageAsync(response, ct);
             return response;
         }
@@ -523,6 +578,7 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
             using var request = new HttpRequestMessage(method, path) { Content = content };
             if (credentials is not null)
                 request.Headers.Authorization = new AuthenticationHeaderValue(credentials.TokenType, credentials.AccessToken);
+            configure?.Invoke(request);
             try { return await httpClient.SendAsync(request, linked.Token); }
             finally { request.Content = null; } // the caller owns JSON content across a possible 401 retry
         }
@@ -782,5 +838,6 @@ public sealed class HttpOrdersApiClient(HttpClient httpClient) : IOrdersApiClien
         public string FullName { get; set; } = string.Empty;
 
         public string Role { get; set; } = string.Empty;
+        public IReadOnlyList<string>? Permissions { get; set; }
     }
 }

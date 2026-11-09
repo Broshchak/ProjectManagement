@@ -40,7 +40,7 @@ namespace Infrastructure.Persistence.Repositories
         {
             return await (from u in context.Set<AppUserEntity>().AsNoTracking()
                           join r in context.Set<RoleEntity>().AsNoTracking() on u.RoleId equals r.Id
-                          where u.TelegramUserId == telegramUserId && u.TelegramAllowed && u.IsActive
+                          where u.TelegramUserId == telegramUserId && u.TelegramAllowed && u.IsActive && r.IsActive
                           select new BotUserInfo(u.Id, u.FullName, r.Code)).FirstOrDefaultAsync(ct);
         }
 
@@ -63,7 +63,7 @@ namespace Infrastructure.Persistence.Repositories
             try
             {
                 var rows = await context.Set<AppUserEntity>()
-                    .Where(u => u.Id == userId && u.IsActive && u.TelegramUserId == null)
+                    .Where(u => u.Id == userId && u.IsActive && u.Role.IsActive && u.TelegramUserId == null)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(u => u.TelegramUserId, (long?)telegramUserId)
                         .SetProperty(u => u.TelegramAllowed, true), ct);
@@ -90,7 +90,7 @@ namespace Infrastructure.Persistence.Repositories
         public async Task<bool> UnbindByTelegramIdAsync(long telegramUserId, CancellationToken ct = default)
         {
             var rows = await context.Set<AppUserEntity>()
-                .Where(u => u.TelegramUserId == telegramUserId)
+                .Where(u => u.TelegramUserId == telegramUserId && u.IsActive && u.Role.IsActive)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(u => u.TelegramUserId, (long?)null)
                     .SetProperty(u => u.TelegramAllowed, false), ct);

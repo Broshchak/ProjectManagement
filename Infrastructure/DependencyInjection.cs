@@ -31,6 +31,7 @@ namespace Infrastructure
 
             services.AddScoped<IOrderRepository, OrderRepository>();
             services.AddScoped<IUserRepository, UserRepository>();
+            services.AddScoped<IRoleRepository, RoleRepository>();
             services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
             services.AddScoped<ITelegramRepository, TelegramRepository>();
             services.AddScoped<IProductRepository, ProductRepository>();
@@ -47,7 +48,7 @@ namespace Infrastructure
             services.AddSingleton<IPasswordHashAlgorithm>(new Argon2Algorithm("argon2id", Argon2Algorithm.TypeArgon2id, hashing));
             services.AddSingleton<IPasswordHashAlgorithm>(new Argon2Algorithm("argon2i", Argon2Algorithm.TypeArgon2i, hashing));
             services.AddSingleton<IPasswordHasher, PasswordHasherService>();
-            services.AddSingleton<IPermissionProvider, StaticPermissionProvider>();
+            services.AddScoped<IPermissionProvider, RolePermissionProvider>();
 
             services.AddSingleton(TelegramOptionsFactory.FromConfiguration(configuration));
 

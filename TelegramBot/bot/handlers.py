@@ -1,185 +1,106 @@
-"""Telegram command handlers and access checks."""
+"""Private-chat commands; the API decides identity and permissions."""
 from __future__ import annotations
 
-from datetime import date, datetime
-import html
-from zoneinfo import ZoneInfo
-from typing import Awaitable, Callable
+import logging
+import re
 
-from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command, CommandObject
-from aiogram.types import BotCommand, Message
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import BotCommand, BufferedInputFile, Message
 
 from .api import ApiError, BackendApi
-from .config import Settings
-from .db import Database
-from .formatting import format_orders, format_report, format_stats
-from .i18n import tr
-from .keyboards import main_keyboard
+
+LOG = logging.getLogger(__name__)
+REPORT_PERMISSIONS = {"reports.read", "reports.telegram.send"}
+ERRORS = {
+    "link_invalid": "Посилання недійсне або прострочене. Створіть нове у WPF.",
+    "telegram_already_linked": "Цей Telegram уже прив’язано. Для зміни скористайтеся /unlink.",
+    "bind_failed": "Не вдалося прив’язати акаунт. Створіть нове посилання у WPF.",
+    "forbidden": "Ви не маєте доступу до цієї команди.",
+    "rate_limited": "Забагато запитів. Спробуйте за хвилину.",
+}
 
 
-def build_router(api: BackendApi, db: Database, settings: Settings) -> Router:
+async def handle_message(api: BackendApi, message: Message) -> None:
+    sender = message.from_user
+    if message.chat.type != "private" or sender is None or sender.is_bot or not message.text:
+        return
+    parts = message.text.strip().split(maxsplit=1)
+    if not parts:
+        return
+    command = parts[0].partition("@")[0].lower()
+    payload = parts[1] if command == "/start" and len(parts) > 1 else ""
+    telegram_id = sender.id
+    try:
+        if payload:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", payload):
+                raise ApiError("link_invalid")
+            await message.bot.send_chat_action(message.chat.id, "typing")
+            linked = await api.link(telegram_id, payload)
+            await message.answer(f"Акаунт прив’язано: {linked.full_name}. Команди: /help.")
+            return
+
+        user = await api.resolve(telegram_id)
+        if user is None:
+            if command == "/start":
+                await message.answer("Це приватний бот. Створіть посилання Telegram у WPF і відкрийте його.")
+            return
+        if command == "/start":
+            await message.answer(f"Вітаю, {user.full_name}! Команди: /help.")
+        elif command == "/help":
+            commands = ["/me — профіль", "/unlink — від’єднати Telegram"]
+            if REPORT_PERMISSIONS <= user.permissions:
+                commands.append("/report — отримати звіт")
+            await message.answer("\n".join(commands))
+        elif command == "/me":
+            await message.answer(f"{user.full_name}\nРоль: {user.role}")
+        elif command == "/unlink":
+            await api.unlink(telegram_id)
+            await message.answer("Telegram від’єднано.")
+        elif command == "/report":
+            await message.bot.send_chat_action(message.chat.id, "typing")
+            report = await api.report(telegram_id)
+            if report.text is not None:
+                text = report.text or "Звіт порожній."
+                for start in range(0, len(text), 4096):
+                    await message.answer(text[start:start + 4096])
+            else:
+                await message.answer_document(BufferedInputFile(report.content, filename=report.filename))
+        elif command.startswith("/"):
+            await message.answer("Невідома команда. Доступні команди: /help.")
+    except ApiError as exc:
+        code = str(exc)
+        if code == "not_linked":
+            return
+        if code in {"invalid_service_credentials", "network_denied"}:
+            LOG.error("Bot API configuration error: %s", code)
+        reply = ERRORS.get(code, "Сервіс тимчасово недоступний. Спробуйте пізніше.")
+        if payload and code == "unavailable":
+            reply = "Результат прив’язування невідомий. Перевірте /start без посилання. Якщо акаунт не прив’язано, створіть нове посилання."
+        await message.answer(reply)
+    finally:
+        if payload:
+            try:
+                await message.delete()
+            except TelegramAPIError:
+                pass
+
+
+def build_router(api: BackendApi) -> Router:
     router = Router(name="orders")
 
-    async def language_for(message: Message) -> str:
-        return await db.get_language(message.from_user.id, settings.default_language)  # type: ignore[union-attr]
-
-    def current_date() -> date:
-        try:
-            return datetime.now(ZoneInfo(settings.timezone_name)).date()
-        except Exception:
-            return datetime.now().date()
-
-    def is_allowed(message: Message) -> bool:
-        return bool(message.from_user and message.from_user.id in settings.allowed_user_ids)
-
-    async def deny(message: Message, language: str) -> None:
-        await message.answer(tr(language, "forbidden"))
-
-    def keyboard_for(message: Message, language: str):
-        return main_keyboard(language, manager=is_allowed(message))
-
-    @router.message(Command("start"))
-    async def start(message: Message) -> None:
-        language = await language_for(message)
-        name = message.from_user.first_name if message.from_user else ""
-        await message.answer(tr(language, "start", name=html.escape(name or "друг")), parse_mode="HTML", reply_markup=keyboard_for(message, language))
-
-    @router.message(Command("help"))
-    async def help_command(message: Message) -> None:
-        language = await language_for(message)
-        help_key = "help" if is_allowed(message) else "help_public"
-        await message.answer(tr(language, help_key), parse_mode="HTML", reply_markup=keyboard_for(message, language))
-
-    @router.message(Command("id"))
-    async def id_command(message: Message) -> None:
-        """Tell a user which Telegram ID must be put in ALLOWED_USER_IDS."""
-        if message.from_user:
-            await message.answer(tr(await language_for(message), "telegram_id", id=message.from_user.id), parse_mode="HTML")
-
-    @router.message(Command("lang"))
-    async def language_command(message: Message, command: CommandObject) -> None:
-        current = await language_for(message)
-        value = (command.args or "").strip().lower()
-        if value not in {"ru", "uk", "ua", "українська", "русский"}:
-            await message.answer(tr(current, "bad_language"))
-            return
-        language = "uk" if value in {"uk", "ua", "українська"} else "ru"
-        await db.set_language(message.from_user.id, language)  # type: ignore[union-attr]
-        await message.answer(tr(language, "language_changed_uk" if language == "uk" else "language_changed"), reply_markup=keyboard_for(message, language))
-
-    async def language_button(message: Message) -> None:
-        current = await language_for(message)
-        language = "uk" if current == "ru" else "ru"
-        await db.set_language(message.from_user.id, language)  # type: ignore[union-attr]
-        await message.answer(
-            tr(language, "language_changed_uk" if language == "uk" else "language_changed"),
-            reply_markup=keyboard_for(message, language),
-        )
-
-    async def run_api(message: Message, operation: Callable[[], Awaitable[object]], language: str) -> object | None:
-        try:
-            return await operation()
-        except ApiError:
-            await message.answer(tr(language, "api_error"))
-            return None
-
-    @router.message(Command("stats"))
-    async def stats_command(message: Message) -> None:
-        language = await language_for(message)
-        if not is_allowed(message):
-            await deny(message, language)
-            return
-        payload = await run_api(message, api.stats, language)
-        if payload is not None:
-            await db.cache_payload(message.from_user.id, "stats", payload)  # type: ignore[union-attr]
-            await message.answer(format_stats(payload, language), parse_mode="HTML")
-
-    @router.message(Command("orders_today"))
-    async def orders_today_command(message: Message) -> None:
-        language = await language_for(message)
-        if not is_allowed(message):
-            await deny(message, language)
-            return
-        today = current_date()
-        payload = await run_api(message, lambda: api.orders(today), language)
-        if payload is not None:
-            await db.cache_payload(message.from_user.id, "orders", payload, today.isoformat())  # type: ignore[union-attr]
-            await message.answer(format_orders(payload, language, today.isoformat()), parse_mode="HTML")
-
-    @router.message(Command("report"))
-    async def report_command(message: Message) -> None:
-        language = await language_for(message)
-        if not is_allowed(message):
-            await deny(message, language)
-            return
-        today = current_date()
-        stats_payload: object = {}
-        orders_payload: object = {}
-        try:
-            report_payload = await api.report(today)
-        except ApiError:
-            # Some MVP backends expose only stats and orders; build a report from them.
-            try:
-                import asyncio
-                stats_payload, orders_payload = await asyncio.gather(api.stats(today), api.orders(today))
-                report_payload = {}
-            except ApiError:
-                await message.answer(tr(language, "api_error"))
-                return
-        await db.cache_payload(message.from_user.id, "report", report_payload, today.isoformat())  # type: ignore[union-attr]
-        # A ready-made report needs one request. Otherwise enrich it with stats and orders.
-        if isinstance(report_payload, dict) and not (report_payload.get("text") or report_payload.get("summary") or report_payload.get("report")) and not stats_payload:
-            try:
-                import asyncio
-                stats_payload, orders_payload = await asyncio.gather(api.stats(today), api.orders(today))
-            except ApiError:
-                pass
-        await message.answer(format_report(report_payload, stats_payload, orders_payload, language, today.isoformat()), parse_mode="HTML")
-
-    # Friendly reply-keyboard actions. Slash commands above remain available.
-    @router.message(F.text == "📊 Статистика")
-    async def stats_button(message: Message) -> None:
-        await stats_command(message)
-
-    @router.message(F.text.in_({"🛒 Заказы сегодня", "🛒 Замовлення сьогодні"}))
-    async def orders_button(message: Message) -> None:
-        await orders_today_command(message)
-
-    @router.message(F.text.in_({"📈 Отчёт", "📈 Звіт"}))
-    async def report_button(message: Message) -> None:
-        await report_command(message)
-
-    @router.message(F.text.in_({"❓ Помощь", "❓ Допомога", "/help"}))
-    async def help_button(message: Message) -> None:
-        await help_command(message)
-
-    @router.message(F.text.in_({"🆔 Мой ID", "🆔 Мій ID"}))
-    async def id_button(message: Message) -> None:
-        await id_command(message)
-
-    @router.message(F.text.in_({"🌐 Українська", "🌐 Русский", "🌐 Язык: русский", "🌐 Мова: українська", "/lang ru", "/lang uk"}))
-    async def language_keyboard_button(message: Message) -> None:
-        await language_button(message)
-
-    @router.message()
-    async def unknown_command(message: Message) -> None:
-        if message.text and message.text.startswith("/"):
-            language = await language_for(message)
-            await message.answer(tr(language, "unknown"))
+    @router.message(F.chat.type == "private", F.text)
+    async def receive(message: Message) -> None:
+        await handle_message(api, message)
 
     return router
 
 
 async def configure_bot_commands(bot: Bot) -> None:
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Начать / Почати"),
-            BotCommand(command="help", description="Справка / Довідка"),
-            BotCommand(command="lang", description="Язык / Мова"),
-            BotCommand(command="id", description="Мой Telegram ID"),
-            BotCommand(command="stats", description="Статистика заказов / замовлень"),
-            BotCommand(command="orders_today", description="Заказы сегодня / сьогодні"),
-            BotCommand(command="report", description="Отчёт / Звіт"),
-        ]
-    )
+    # /report is advertised in /help only when the API grants it.
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Почати або прив’язати акаунт"),
+        BotCommand(command="help", description="Доступні команди"),
+        BotCommand(command="me", description="Профіль"),
+        BotCommand(command="unlink", description="Від’єднати Telegram"),
+    ])
