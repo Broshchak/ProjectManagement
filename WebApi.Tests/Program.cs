@@ -11,6 +11,11 @@ using Infrastructure.Security;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Npgsql;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using WebApi;
+using WebApi.Bot;
+using WebApi.Infrastructure;
 
 namespace ApiIntegrationTests;
 
@@ -43,6 +48,8 @@ internal static class TestRunner
             if (directory is null) throw new Exception("Repository root not found");
             await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/01_create_schema.sql")));
             await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/02_seed_data.sql")));
+            await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/03_auth.sql")));
+            await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/04_telegram.sql")));
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", Args = [] });
             builder.Logging.ClearProviders();
             builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, 0));
@@ -50,15 +57,29 @@ internal static class TestRunner
             {
                 ["ConnectionStrings:Default"] = connectionString,
                 ["Seed:Passwords:admin"] = "local-admin-seed",
+                ["Telegram:BotUsername"] = "OrdersTestBot",
                 ["Jwt:Issuer"] = "local-tests", ["Jwt:Audience"] = "local-tests",
                 ["Jwt:SigningKey"] = "local-test-key-only-012345678901234567890123456789"
             });
-            builder.Services.AddApplication().AddBasicAuthApplication().AddInfrastructure(builder.Configuration).AddBasicAuthInfrastructure(builder.Configuration);
-            builder.Services.AddAuthorization();
+            builder.Services.AddApplication().AddInfrastructure(builder.Configuration);
+            builder.Services.AddWebApiSecurity(builder.Configuration).AddBotIntegration(builder.Configuration);
+            builder.Services.AddProblemDetails().AddExceptionHandler<ApiExceptionHandler>();
             builder.Services.AddControllers().AddApplicationPart(typeof(WebApi.Controllers.OrdersController).Assembly);
             app = builder.Build();
             services = app.Services;
             await services.SeedUserPasswordsAsync();
+            app.UseExceptionHandler();
+            app.UseRouting();
+            int loginRequests = 0;
+            app.Use(async (context, next) =>
+            {
+                // Keep unrelated credential scenarios in separate rate-limit buckets.
+                if (context.Request.Path == "/api/auth/login")
+                    context.Connection.RemoteIpAddress = IPAddress.Parse($"192.0.2.{Interlocked.Increment(ref loginRequests)}");
+                await next();
+            });
+            app.UseRateLimiter();
+            app.UseAuthentication();
             app.UseAuthorization();
             app.MapControllers();
             await app.StartAsync();
@@ -111,7 +132,8 @@ internal static class TestRunner
     {
         await Test("startup seeds configured placeholder passwords without replacing existing hashes", async () =>
         {
-            await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "admin", password = "local-admin-seed" }));
+            var login = await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "admin", password = "local-admin-seed" }));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (string)login["accessToken"]!);
             services.GetRequiredService<IConfiguration>()["Seed:Passwords:admin"] = "must-not-replace-existing-password";
             await services.SeedUserPasswordsAsync();
             await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "admin", password = "local-admin-seed" }));
@@ -120,6 +142,72 @@ internal static class TestRunner
             var pending = await scope.ServiceProvider.GetRequiredService<IUserRepository>().GetWithPlaceholderPasswordsAsync();
             Check(pending.All(u => u.Login != "admin") && pending.Any(u => u.Login == "manager"),
                 "Configured hashes or unconfigured placeholders changed unexpectedly");
+        });
+
+        await Test("legacy password migrates and login/refresh share a rotating token contract", async () =>
+        {
+            const string password = "previous-format-password";
+            var salt = RandomNumberGenerator.GetBytes(16);
+            var hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, 600_000, HashAlgorithmName.SHA256, 32);
+            await Sql($"UPDATE app_users SET password_hash = 'pbkdf2-sha256$600000${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}' WHERE login = 'viewer'");
+            var login = await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "viewer", password }));
+            var refresh = await Read(await http.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = (string)login["refreshToken"]! }));
+            foreach (var pair in new[] { login, refresh })
+            {
+                Check(pair["accessToken"] is not null && pair["refreshToken"] is not null &&
+                    DateTimeOffset.Parse((string)pair["accessTokenExpiresAt"]!) > DateTimeOffset.UtcNow &&
+                    DateTimeOffset.Parse((string)pair["refreshTokenExpiresAt"]!) > DateTimeOffset.UtcNow,
+                    "Incomplete token pair");
+            }
+            Check((string)login["refreshToken"]! != (string)refresh["refreshToken"]!, "Refresh token did not rotate");
+            await Status(await http.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = (string)login["refreshToken"]! }), HttpStatusCode.Unauthorized);
+            await Status(await http.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = (string)refresh["refreshToken"]! }), HttpStatusCode.Unauthorized);
+
+            using var scope = services.CreateScope();
+            var user = await scope.ServiceProvider.GetRequiredService<IUserRepository>().GetByLoginAsync("viewer");
+            Check(user is not null && user.PasswordHash.StartsWith('$'), "Legacy hash did not migrate");
+            var admin = http.DefaultRequestHeaders.Authorization;
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)refresh["accessToken"]!);
+                var profile = await Get("/api/auth/me");
+                Check((string)profile["role"]! == "Viewer" && (string)profile["roleCode"]! == "Viewer" &&
+                    (int)profile["id"]! == (int)profile["userId"]! && (string)profile["login"]! == "viewer", "Profile is incompatible with WPF");
+                await Get("/api/reports/orders");
+                await Status(await http.GetAsync("/api/users"), HttpStatusCode.Forbidden);
+                await Status(await http.PostAsJsonAsync("/api/orders/1/status", new { action = "register" }), HttpStatusCode.Forbidden);
+            }
+            finally { http.DefaultRequestHeaders.Authorization = admin; }
+        });
+
+        await Test("Telegram service account can link and report without access to desktop routes", async () =>
+        {
+            await Read(await http.PostAsJsonAsync("/api/users", new
+            {
+                login = "telegram-bot", fullName = "Test bot", roleCode = "TelegramBot", password = "local-bot-password"
+            }), HttpStatusCode.Created);
+            var link = await Read(await http.PostAsync("/api/telegram/link", null));
+            var deepLink = new Uri((string)link["url"]!);
+            var token = Uri.UnescapeDataString(deepLink.Query["?start=".Length..]);
+            const string botPath = "/api/bot/users/987654321";
+            await Status(await http.GetAsync(botPath), HttpStatusCode.Forbidden);
+
+            var bot = await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "telegram-bot", password = "local-bot-password" }));
+            var admin = http.DefaultRequestHeaders.Authorization;
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)bot["accessToken"]!);
+                await Status(await http.GetAsync("/api/orders"), HttpStatusCode.Forbidden);
+                await Status(await http.GetAsync("/api/auth/me"), HttpStatusCode.Forbidden);
+                await Status(await http.GetAsync(botPath), HttpStatusCode.NotFound);
+                await Read(await http.PostAsJsonAsync(botPath + "/link", new { token }));
+                var report = await Read(await http.PostAsync(botPath + "/report", null));
+                Check((string)report["type"]! == "text" && ((string)report["text"]!).Contains("Звіт для керівника"),
+                    "Bot did not return the real manager summary");
+                await Status(await http.DeleteAsync(botPath + "/link"), HttpStatusCode.NoContent);
+                await Status(await http.PostAsync(botPath + "/report", null), HttpStatusCode.NotFound);
+            }
+            finally { http.DefaultRequestHeaders.Authorization = admin; }
         });
 
         await Test("unsupported or unconfigured database provider fails before connecting", () =>
@@ -232,10 +320,10 @@ internal static class TestRunner
 
         await Test("users validate roles, Telegram and duplicate identifiers", async () =>
         {
-            await Status(await http.PostAsJsonAsync("/api/users", new { login = "NEWUSER", fullName = "Duplicate", role = "Viewer", password = "secret" }), HttpStatusCode.Conflict);
-            await Status(await http.PostAsJsonAsync("/api/users", new { login = "other", fullName = "Other", role = "Viewer", password = "secret", telegramUserId = 12345678 }), HttpStatusCode.Conflict);
-            await Status(await http.PostAsJsonAsync("/api/users", new { login = "other", fullName = "Other", role = "Unknown", password = "secret" }), HttpStatusCode.BadRequest);
-            await Status(await http.PostAsJsonAsync("/api/users", new { login = "other", fullName = "Other", role = "Viewer", password = "secret", telegramAllowed = true }), HttpStatusCode.BadRequest);
+            await Status(await http.PostAsJsonAsync("/api/users", new { login = "NEWUSER", fullName = "Duplicate", role = "Viewer", password = "safe-test-password" }), HttpStatusCode.Conflict);
+            await Status(await http.PostAsJsonAsync("/api/users", new { login = "other", fullName = "Other", role = "Viewer", password = "safe-test-password", telegramUserId = 12345678 }), HttpStatusCode.Conflict);
+            await Status(await http.PostAsJsonAsync("/api/users", new { login = "other", fullName = "Other", role = "Unknown", password = "safe-test-password" }), HttpStatusCode.BadRequest);
+            await Status(await http.PostAsJsonAsync("/api/users", new { login = "other", fullName = "Other", role = "Viewer", password = "safe-test-password", telegramAllowed = true }), HttpStatusCode.BadRequest);
         });
 
         await Test("metadata update and separate password replacement persist", async () =>
@@ -272,7 +360,7 @@ internal static class TestRunner
             });
             var body = await response.Content.ReadAsStringAsync();
             Check(response.StatusCode == HttpStatusCode.Conflict, $"Expected conflict, got {response.StatusCode}");
-            Check(JsonNode.Parse(body)?["message"] is not null && !body.Contains("Npgsql") && !body.Contains("23505") && !body.Contains("INSERT INTO"),
+            Check(JsonNode.Parse(body)?["detail"] is not null && !body.Contains("Npgsql") && !body.Contains("23505") && !body.Contains("INSERT INTO"),
                 "Conflict exposes provider details");
             Check((await Get($"/api/orders/{orderId}")).ToJsonString() == order.ToJsonString(), "Duplicate insert changed the existing order");
         });

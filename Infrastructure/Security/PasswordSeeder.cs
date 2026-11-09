@@ -20,7 +20,7 @@ public static class PasswordSeeder
         {
             var password = config[$"Seed:Passwords:{user.Login}"];
             if (!string.IsNullOrWhiteSpace(password))
-                user.PasswordHash = hasher.Hash(password);
+                user.PasswordHash = await hasher.HashAsync(password, ct);
         }
 
         if (pending.Count > 0)

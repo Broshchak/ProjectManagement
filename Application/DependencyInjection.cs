@@ -9,6 +9,11 @@ namespace Application
         public static IServiceCollection AddApplication(this IServiceCollection services)
         {
             services.AddScoped<IOrderService, OrderService>();
+            services.AddScoped<IAuthService, AuthService>();
+
+            services.AddScoped<ITelegramLinkService, TelegramLinkService>();
+            services.AddScoped<IBotService, BotService>();
+            services.AddScoped<IBotReportService, BotReportService>();
             services.AddScoped<IProductService, ProductService>();
             services.AddScoped<ICustomerService, CustomerService>();
             services.AddScoped<IUserManagementService, UserManagementService>();

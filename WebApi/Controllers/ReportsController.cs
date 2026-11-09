@@ -1,11 +1,14 @@
 using Application.Common.Interfaces;
 using Application.Dtos.Reports;
 using Microsoft.AspNetCore.Mvc;
+using Application.Security;
+using WebApi.Security;
 
 namespace WebApi.Controllers;
 
 [Route("api/reports")]
 [ApiController]
+[HasPermission(Permissions.ReportsRead)]
 public class ReportsController(IReportService reports) : ControllerBase
 {
     [HttpGet("orders")]

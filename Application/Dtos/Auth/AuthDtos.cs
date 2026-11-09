@@ -1,14 +1,33 @@
-using System.ComponentModel.DataAnnotations;
+namespace Application.Dtos.Auth
+{
+    // ToString() is overridden on records holding secrets to prevent them from accidentally
+    // leaking, for example, through logs.
+    public record LoginDto(string Login, string Password)
+    {
+        public override string ToString() => $"LoginDto {{ Login = {Login} }}";
+    }
 
-namespace Application.Dtos.Auth;
+    public record RefreshTokenDto(string RefreshToken)
+    {
+        public override string ToString() => "RefreshTokenDto { }";
+    }
 
-public sealed record LoginRequestDto(
-    [Required, StringLength(100)] string Login,
-    [Required, StringLength(256)] string Password);
+    public record TokenPairDto(
+        string AccessToken,
+        DateTime AccessTokenExpiresAt,
+        string RefreshToken,
+        DateTime RefreshTokenExpiresAt)
+    {
+        public string TokenType => "Bearer";
+        public override string ToString() => "TokenPairDto { }";
+    }
 
-public sealed record LoginResponseDto(string AccessToken, DateTime AccessTokenExpiresAt, string TokenType = "Bearer");
+    public record CurrentUserDto(int UserId, string RoleCode, IReadOnlyCollection<string> Permissions, string Login, string FullName)
+    {
+        public int Id => UserId;
+        public string Role => RoleCode;
+    }
 
-public sealed record CurrentUserDto(int Id, string Login, string FullName, string Role);
-
-/// <summary>Projection used by auth only (the original AppUserEntity has no Role navigation).</summary>
-public sealed record AuthUser(int Id, string Login, string PasswordHash, string FullName, bool IsActive, string RoleCode);
+    /// <summary>Minimal per-request identity data loaded from the DB (immediate revocation).</summary>
+    public record AuthUserInfo(int Id, string RoleCode);
+}

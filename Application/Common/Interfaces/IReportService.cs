@@ -10,3 +10,8 @@ public interface IReportService
     Task<IReadOnlyList<LowStockProductReportItemDto>> GetLowStockAsync(CancellationToken ct = default);
     Task<ManagerSummaryReportDto> GetManagerSummaryAsync(DateTime? from, DateTime? to, CancellationToken ct = default);
 }
+
+public interface IBotReportService
+{
+    Task<ReportOutput> GenerateAsync(ReportRequest request, CancellationToken ct = default);
+}

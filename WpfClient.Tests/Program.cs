@@ -174,6 +174,76 @@ internal static class Program
             Check(expired && server.Paths.Count == 1 && server.Http.DefaultRequestHeaders.Authorization is null, "Expired token used");
         });
 
+        await Test("parallel requests share a single refresh and use the rotated pair", async () =>
+        {
+            var refreshStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseRefresh = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int refreshes = 0;
+            using Fake server = new(async (r, _) =>
+            {
+                switch (r.RequestUri!.AbsolutePath)
+                {
+                    case "/api/auth/login":
+                        return Json("""{"accessToken":"original","accessTokenExpiresAt":"2099-10-25T12:00:00Z","refreshToken":"first-refresh","refreshTokenExpiresAt":"2099-11-08T12:00:00Z"}""");
+                    case "/api/auth/me":
+                        return Json("""{"id":42,"login":"custom","fullName":"Actual user","role":"Director"}""");
+                    case "/api/auth/refresh":
+                        refreshes++;
+                        Check((await r.Content!.ReadAsStringAsync()).Contains("first-refresh"), "Wrong refresh token submitted");
+                        refreshStarted.TrySetResult(true);
+                        await releaseRefresh.Task;
+                        return Json("""{"accessToken":"rotated","accessTokenExpiresAt":"2099-10-26T12:00:00Z","refreshToken":"second-refresh","refreshTokenExpiresAt":"2099-11-09T12:00:00Z"}""");
+                    default:
+                        return r.Headers.Authorization?.Parameter == "rotated" ? Json("[]") : new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                }
+            });
+            await server.Client.SignInAsync("custom", "password");
+            var first = server.Client.GetOrdersAsync();
+            await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var second = server.Client.GetOrdersAsync();
+            releaseRefresh.SetResult(true);
+            await Task.WhenAll(first, second);
+            Check(refreshes == 1 && server.Authorization.Count(a => a == "Bearer rotated") == 2,
+                "Concurrent requests repeated rotation or did not use the new access token");
+        });
+
+        await Test("a refresh finishing after sign-out cannot restore the old session", async () =>
+        {
+            var refreshStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseRefresh = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int logins = 0;
+            using Fake server = new(async (r, _) =>
+            {
+                switch (r.RequestUri!.AbsolutePath)
+                {
+                    case "/api/auth/login":
+                        return ++logins == 1
+                            ? Json("""{"accessToken":"old","accessTokenExpiresAt":"2099-10-25T12:00:00Z","refreshToken":"old-refresh","refreshTokenExpiresAt":"2099-11-08T12:00:00Z"}""")
+                            : Json("""{"accessToken":"new-session","accessTokenExpiresAt":"2099-10-25T12:00:00Z"}""");
+                    case "/api/auth/me":
+                        return Json("""{"id":42,"login":"custom","fullName":"Actual user","role":"Director"}""");
+                    case "/api/auth/refresh":
+                        refreshStarted.TrySetResult(true);
+                        await releaseRefresh.Task;
+                        return Json("""{"accessToken":"late","accessTokenExpiresAt":"2099-10-26T12:00:00Z","refreshToken":"late-refresh","refreshTokenExpiresAt":"2099-11-09T12:00:00Z"}""");
+                    default:
+                        return r.Headers.Authorization?.Parameter == "new-session" ? Json("[]") : new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                }
+            });
+
+            await server.Client.SignInAsync("custom", "password");
+            var oldRequest = server.Client.GetOrdersAsync();
+            await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            server.Client.SignOut();
+            await server.Client.SignInAsync("custom", "password");
+            releaseRefresh.SetResult(true);
+            try { await oldRequest; throw new Exception("Old request unexpectedly succeeded"); }
+            catch (OperationCanceledException) { }
+            await server.Client.GetOrdersAsync();
+            Check(server.Authorization.Last() == "Bearer new-session" && !server.Authorization.Contains("Bearer late"),
+                "Late refresh overwrote the new session");
+        });
+
         await Test("quantity replacement uses a single versioned PUT and never DELETE/POST", async () =>
         {
             using Fake server = new(_ => Json(Detail(1)));
