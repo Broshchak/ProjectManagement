@@ -46,11 +46,7 @@
         </Grid.RowDefinitions>
 
         <Border Background="#FFFFFF" BorderBrush="#D9E1EA" BorderThickness="1" CornerRadius="6" Padding="18" Margin="0,0,0,16">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+            <StackPanel>
                 <StackPanel>
                     <TextBlock Text="{Binding Path=T[ReportsTitle]}" FontSize="18" FontWeight="SemiBold" Foreground="#17202B" />
                     <TextBlock Text="{Binding Path=T[ReportsDescription]}"
@@ -69,8 +65,9 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
+                    <TextBlock Text="{Binding ReportPdfMessage}" Foreground="#205587" TextWrapping="Wrap" Margin="0,4,0,0"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <WrapPanel Margin="0,10,0,0">
                     <TextBlock Text="{Binding Path=T[ReportFrom]}" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,6,0" />
                     <DatePicker SelectedDate="{Binding ReportDateFrom}" Width="130" MinHeight="34" Margin="0,0,10,0" />
                     <TextBlock Text="{Binding Path=T[ReportTo]}" VerticalAlignment="Center" Foreground="#687789" Margin="0,0,6,0" />
@@ -83,9 +80,15 @@
                     <Button Content="{Binding Path=T[ExportPdf]}"
                             Command="{Binding ExportReportsToPdfCommand}"
                             Style="{StaticResource ActionButtonStyle}"
-                            Visibility="{Binding CanViewReports, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                </StackPanel>
-            </Grid>
+                            Visibility="{Binding CanUseReportPdf, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,8,0"/>
+                    <Button Content="{Binding T[PrintPdf]}" Command="{Binding PrintReportCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Visibility="{Binding CanUseReportPdf, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,8,0"/>
+                    <Button Content="{Binding T[ReportTemplates]}" Command="{Binding OpenReportTemplatesCommand}"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Visibility="{Binding CanUseReportPdf, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                </WrapPanel>
+            </StackPanel>
         </Border>
 
         <TabControl Visibility="{Binding HasLoadedReports, Converter={StaticResource BooleanToVisibilityConverter}}" Grid.Row="1" SelectedIndex="{Binding SelectedReportTabIndex}">

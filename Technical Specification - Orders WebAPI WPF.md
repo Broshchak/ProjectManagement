@@ -273,7 +273,7 @@ Keep authentication, current user, order/item/product/customer/user operations a
 | Permissions | GET /api/permissions; GET /api/roles/permissions; PUT /api/roles/{roleId}/permissions — Admin; GET /api/auth/me/permissions — current user |
 | Workflow | GET /api/workflow; GET /api/workflow/roles; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
 | Transitions | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{code} |
-| Reports | CRUD /api/report-templates; POST /api/reports/pdf |
+| Reports | GET /api/report-templates/catalog; CRUD /api/report-templates; POST /api/reports/pdf; POST /api/reports/pdf/preview; GET /api/orders/{id}/pdf |
 | Delivery | GET /api/delivery/cities; GET /api/delivery/warehouses; GET/POST /api/orders/{id}/shipment; POST /api/orders/{id}/shipment/refresh |
 | Payments | POST/GET /api/orders/{id}/payments; POST /api/payments/{id}/refresh; POST /api/payments/liqpay/callback |
 
@@ -295,7 +295,7 @@ Use one workflow service, a small rule evaluator, one PDF service and external p
 
 Templates contain a dataset (orders, product sales, low stock, summary), title, known columns/order, filters, sorting, one grouping, totals, note and page orientation. Use known blocks, not arbitrary SQL/scripts/HTML. Admin/Director edit shared templates; users need Reports.View and permissions for all data/blocks used. Missing source permissions deny generation.
 
-The server validates template schema/version and limits, builds one data snapshot and renders QuestPDF with bundled Ukrainian fonts. Return application/pdf and a file name. Preview also uses server generation; JSON reports remain for screens. Define sales semantics; financial totals use confirmed payments and mark test data separately. Convert Europe/Kyiv date boundaries to UTC including daylight-saving transitions. Synchronous generation has row, period and duration limits. Verify the library and fonts on the target host.
+The server validates template schema/version and limits, builds one data snapshot and renders QuestPDF with bundled Ukrainian fonts. Return application/pdf and a file name. Preview uses a server-generated sample PDF shown in a dedicated WPF window. Report and selected-order printing use live data and the Windows print dialog. WPF passes `kyiv=true` to align JSON report periods with PDF. PDF requests select a preset, a saved template version or a draft layout. Stage 6 reports aggregate order lines across workflow states. Reports based on confirmed payments and separate test data belong to the payments stage. Convert Europe/Kyiv date boundaries to UTC including daylight-saving transitions. Synchronous generation has row, period and duration limits. Verify the library and fonts on the target host.
 
 ### Test delivery and payments
 

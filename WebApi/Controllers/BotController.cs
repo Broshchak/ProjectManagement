@@ -56,6 +56,7 @@ namespace WebApi.Controllers
         /// the raw file with Content-Type and Content-Disposition.
         /// </summary>
         [HttpPost("report")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
         public async Task<IActionResult> Report(long telegramUserId, CancellationToken ct)
         {
             var result = await botService.GetReportAsync(telegramUserId, ct);

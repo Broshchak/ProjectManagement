@@ -11,6 +11,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Markup;
 using System.Xml.Linq;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using Orders.Reports;
 using Orders.Workflow;
 using WpfClient.Views;
 using WpfClient;
@@ -284,12 +286,13 @@ internal static class Program
                 using Fake server = new(r => Reports(r.RequestUri!.PathAndQuery));
                 await server.Client.GetOrdersReportAsync(new(2026, 10, 1), new(2026, 10, 25));
                 await server.Client.GetTodayOrdersReportAsync(new(2026, 10, 25));
-                Check(server.Paths[0].Contains("from=2026-10-01") && server.Paths[1].Contains("date=2026-10-25"), "Calendar changed API dates");
+                Check(server.Paths[0].Contains("from=2026-10-01") && server.Paths[1].Contains("date=2026-10-25") &&
+                    server.Paths.All(path => path.Contains("kyiv=true")), "Calendar changed API dates or diverged from the PDF period");
             }
             finally { CultureInfo.CurrentCulture = culture; }
         });
 
-        await Test("failed report refresh clears old result and prevents PDF dialog", async () =>
+        await Test("failed report refresh clears old statistics", async () =>
         {
             bool fail = false;
             using Fake server = new(r => fail && r.RequestUri!.AbsolutePath.EndsWith("products")
@@ -298,8 +301,6 @@ internal static class Program
             Check(await Call<bool>(vm, "LoadReportsAsync") && vm.HasLoadedReports, "Initial report failed");
             fail = true;
             Check(!await Call<bool>(vm, "LoadReportsAsync") && !vm.HasLoadedReports && vm.ProductSalesReport.Count == 0, "Old report retained");
-            // This would block on a file dialog if the export incorrectly continued after failure.
-            await Call(vm, "ExportReportsToPdfAsync");
         });
 
         await Test("changing filters clears displayed report and invalid range makes no request", async () =>
@@ -695,27 +696,109 @@ internal static class Program
             Check(!vm.IsAuthenticated && vm.Orders.Count == 0 && vm.Products.Count == 0, "Late data crossed session boundary");
         });
 
-        await Test("all four PDF variants generate in Ukrainian and English", () =>
+        await Test("WPF downloads only validated server PDFs and uses the selected tab and date", async () =>
         {
-            string folder = Path.Combine(Path.GetTempPath(), "wpf-report-tests-" + Guid.NewGuid());
-            Directory.CreateDirectory(folder);
-            try
+            bool valid = false;
+            using Fake server = new(_ => valid ? PdfFixture() : Json("""{"error":"not PDF"}"""));
+            var vm = ViewModel(server.Client);
+            vm.SelectedReportTabIndex = 1;
+            await Call(vm, "ExportReportsToPdfAsync");
+            Check(server.Paths.Single() == "/api/reports/pdf" && server.Methods.Single() == "POST" &&
+                server.Bodies.Single()!.Contains("\"preset\":\"orders\"") &&
+                server.Bodies.Single()!.Contains("\"from\":\"2026-10-25\"") &&
+                vm.ReportPdfMessage?.Contains("did not return a PDF") == true, "Export used a local or wrong report");
+            valid = true;
+            var pdf = await server.Client.GenerateReportPdfAsync(new GenerateReportPdf(Preset: "summary"));
+            Check(pdf.FileName == "fixture.pdf" && pdf.Content.AsSpan().StartsWith("%PDF-"u8), "PDF bytes or filename were lost");
+        });
+
+        await Test("report builder persists reordered columns and previews a draft through the API", async () =>
+        {
+            var source = new ReportSource(new("orders", "Замовлення", "Orders"),
+                [new("number", "Номер", "Number"), new("status", "Стан", "State"), new("amount", "Сума", "Amount")],
+                ["status"], new("orders", ["number", "status", "amount"], "amount", Descending: true));
+            var saved = new ReportTemplate(7, "Звіт за станом", 42, 2, source.DefaultLayout with { Columns = ["status", "number", "amount"] });
+            using Fake server = new(request => request.RequestUri!.AbsolutePath switch
             {
-                foreach (string language in new[] { "uk", "en" })
-                {
-                    LocalizationManager.Instance.SetLanguage(language);
-                    for (int tab = 0; tab < 4; tab++)
-                    {
-                        string file = Path.Combine(folder, $"{language}-{tab}.pdf");
-                        PdfReportExporter.Save(file, tab, new() { TotalOrders = 1, TotalAmount = 40 }, new(2026, 10, 1), new(2026, 10, 25), new(2026, 10, 25), 1, 40,
-                            [new() { OrderNumber = "O-1", CustomerFullName = "Покупець / Customer", StatusCode = "NewOrder", TotalAmount = 40 }],
-                            [new() { ProductName = "Товар / Product", CategoryName = "Category", Quantity = 2, TotalAmount = 40 }], [], "Звіт / Report");
-                        Check(File.ReadAllText(file).StartsWith("%PDF-"), "PDF missing");
-                    }
-                }
+                "/api/report-templates/catalog" => Json(System.Text.Json.JsonSerializer.Serialize(new[] { source })),
+                "/api/report-templates" when request.Method == HttpMethod.Post => Json(System.Text.Json.JsonSerializer.Serialize(saved)),
+                "/api/report-templates" => Json("[]"),
+                "/api/reports/pdf/preview" or "/api/reports/pdf" => PdfFixture(),
+                _ => Json("{}", HttpStatusCode.NotFound)
+            });
+            var deliveries = new List<ReportPdfAction>();
+            var editor = new ReportTemplateViewModel(server.Client, true, new(2026, 10, 1), new(2026, 10, 25),
+                () => true, (file, action) => { deliveries.Add(action); return Task.FromResult(file.FileName == "fixture.pdf"); }, () => true);
+            await editor.LoadAsync([new("NewOrder", "Нове"), new("Registered", "Зареєстроване")]);
+            editor.Name = saved.Name;
+            editor.MoveColumnCommand.Execute("down");
+            editor.SaveCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(editor.SelectedTemplate?.Version == 2 && server.Bodies.Last()!.Contains("[\"status\",\"number\",\"amount\"]"),
+                "Builder lost the chosen column order");
+            editor.PreviewCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(server.Paths.Last() == "/api/reports/pdf/preview" && server.Bodies.Last()!.Contains("\"draft\":{") &&
+                deliveries.SequenceEqual(new[] { ReportPdfAction.Preview }), "Draft did not use the sample preview endpoint");
+            editor.DownloadCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(server.Paths.Last() == "/api/reports/pdf" && server.Bodies.Last()!.Contains("\"templateId\":7") &&
+                server.Bodies.Last()!.Contains("\"expectedVersion\":2") && deliveries.SequenceEqual(new[] { ReportPdfAction.Preview, ReportPdfAction.Save }),
+                "Download did not use the saved template version");
+            editor.PrintCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(server.Paths.Last() == "/api/reports/pdf" && server.Bodies.Last()!.Contains("\"draft\":{") &&
+                deliveries.Last() == ReportPdfAction.Print, "Print did not use the current layout with live data");
+
+            string folder = Path.Combine(AppContext.BaseDirectory, "qa");
+            Directory.CreateDirectory(folder);
+            var window = new ReportTemplateWindow(server.Client, true, new(2026, 10, 1), new(2026, 10, 25), [], () => true)
+            { DataContext = editor };
+            Render((FrameworkElement)window.Content, Path.Combine(folder, "report-builder.png"), 1000, 730);
+        });
+
+        await Test("PDF window renders pages and the order print action requests the selected order", async () =>
+        {
+            byte[] content = PreviewPdfFixture();
+            var preview = new ReportPreviewWindow(content);
+            await Call(preview, "LoadAsync");
+            var image = (Image)preview.FindName("PageImage");
+            var next = (Button)preview.FindName("NextPage");
+            Check(image.Source is BitmapImage { PixelWidth: > 0 } && next.IsEnabled, "Windows PDF did not render the first page");
+            await (Task)typeof(ReportPreviewWindow).GetMethod("RenderAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(preview, [1])!;
+            Check(!next.IsEnabled && ((Button)preview.FindName("PreviousPage")).IsEnabled, "Page navigation did not advance");
+            preview.Close();
+
+            var assembly = typeof(HttpOrdersApiClient).Assembly;
+            var open = (Task)assembly.GetType("WpfClient.Services.PdfPageReader")!.GetMethod("OpenAsync")!.Invoke(null, [content])!;
+            await open;
+            using var reader = (IDisposable)open.GetType().GetProperty("Result")!.GetValue(open)!;
+            var paginatorType = assembly.GetType("WpfClient.Services.ReportPdfPrinter+PdfPaginator")!;
+            var paginator = (DocumentPaginator)Activator.CreateInstance(paginatorType,
+                reader, new Size(500, 700), new Rect(20, 30, 450, 630), 1, 1)!;
+            using var page = paginator.GetPage(0);
+            Check(paginator.PageCount == 1 && page.Visual is DrawingVisual && page.ContentBox.X >= 20 && page.ContentBox.Bottom <= 660,
+                "Print pagination did not fit the selected page into the printable area");
+
+            using Fake server = new(_ => Json("{}"));
+            var vm = ViewModel(server.Client, "Viewer");
+            Set(vm, "SelectedOrderDetails", new OrderDetail { Id = 14 });
+            await Call(vm, "PrintSelectedOrderAsync");
+            Check(server.Paths.Single().StartsWith("/api/orders/14/pdf?language=") && server.Methods.Single() == "GET" &&
+                vm.ApiErrorMessage?.Contains("did not return a PDF") == true, "Print did not request the selected order");
+
+            if (Environment.GetEnvironmentVariable("CODEX_REPORT_PREVIEW_QA_PATH") is { Length: > 0 } sample)
+            {
+                var realPreview = new ReportPreviewWindow(await File.ReadAllBytesAsync(sample));
+                await Call(realPreview, "LoadAsync");
+                Check(((Image)realPreview.FindName("PageImage")).Source is BitmapImage, "Server-generated sample did not render in WPF");
+                string folder = Path.Combine(AppContext.BaseDirectory, "qa");
+                Directory.CreateDirectory(folder);
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                Render((FrameworkElement)realPreview.Content, Path.Combine(folder, "report-preview.png"), 970, 760);
+                realPreview.Close();
             }
-            finally { LocalizationManager.Instance.SetLanguage("uk"); Directory.Delete(folder, true); }
-            return Task.CompletedTask;
         });
 
         await Test("updated WPF views render with application resources", async () =>
@@ -818,6 +901,38 @@ internal static class Program
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using FileStream stream = File.Create(path);
         encoder.Save(stream);
+    }
+
+    private static HttpResponseMessage PdfFixture()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent("%PDF-1.7"u8.ToArray()) };
+        response.Content.Headers.ContentType = new("application/pdf");
+        response.Content.Headers.ContentDisposition = new("attachment") { FileNameStar = "fixture.pdf" };
+        return response;
+    }
+
+    private static byte[] PreviewPdfFixture()
+    {
+        const string drawing = "q 0.2 0.4 0.7 rg 40 60 120 40 re f Q";
+        string[] objects =
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 150] /Resources << >> /Contents 5 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 150] /Resources << >> /Contents 5 0 R >>",
+            $"<< /Length {drawing.Length} >>\nstream\n{drawing}\nendstream"
+        ];
+        var pdf = new StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(pdf.Length);
+            pdf.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+        int xref = pdf.Length;
+        pdf.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets) pdf.Append($"{offset:D10} 00000 n \n");
+        pdf.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return Encoding.ASCII.GetBytes(pdf.ToString());
     }
 
     private sealed class Fake : IDisposable

@@ -2,6 +2,7 @@ namespace WpfClient.Models;
 
 public sealed class TodayOrderReportItem
 {
+    private static readonly TimeZoneInfo Kyiv = TimeZoneInfo.FindSystemTimeZoneById("Europe/Kyiv");
     public int Id { get; set; }
 
     public string OrderNumber { get; set; } = string.Empty;
@@ -20,7 +21,8 @@ public sealed class TodayOrderReportItem
 
     public string TotalAmountText => $"{TotalAmount:N2} грн";
 
-    public string CreatedAtText => CreatedAt.ToString("dd.MM.yyyy HH:mm");
+    public string CreatedAtText => (CreatedAt.Kind == DateTimeKind.Unspecified ? CreatedAt : TimeZoneInfo.ConvertTime(CreatedAt, Kyiv))
+        .ToString("dd.MM.yyyy HH:mm");
 }
 
 public sealed class ProductSalesReportItem

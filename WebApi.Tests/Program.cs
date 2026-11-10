@@ -5,6 +5,7 @@ using Application;
 using Application.Common.Interfaces;
 using Application.Dtos.Customers;
 using Application.Dtos.Users;
+using Application.Services;
 using System.ComponentModel.DataAnnotations;
 using Infrastructure;
 using Infrastructure.Security;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Npgsql;
 using Orders.Workflow;
+using Orders.Reports;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using WebApi;
@@ -58,6 +60,7 @@ internal static class TestRunner
             await Sql(rolePermissionsMigration);
             workflowMigration = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/07_order_workflow.sql"));
             await Sql(workflowMigration);
+            await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/08_report_templates.sql")));
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", Args = [] });
             builder.Logging.ClearProviders();
             builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, 0));
@@ -132,6 +135,20 @@ internal static class TestRunner
     private static async Task Status(HttpResponseMessage response, HttpStatusCode expected)
     {
         using (response) Check(response.StatusCode == expected, $"Expected {expected}, got {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+    }
+
+    private static async Task<byte[]> CheckPdfAsync(HttpResponseMessage response)
+    {
+        using (response)
+        {
+            if (response.StatusCode != HttpStatusCode.OK)
+                throw new Exception("PDF request failed: " + await response.Content.ReadAsStringAsync());
+            byte[] content = await response.Content.ReadAsByteArrayAsync();
+            Check(response.Content.Headers.ContentType?.MediaType == "application/pdf" &&
+                response.Content.Headers.ContentDisposition?.FileNameStar?.EndsWith(".pdf") == true &&
+                content.AsSpan().StartsWith("%PDF-"u8), "Missing PDF, filename or content type");
+            return content;
+        }
     }
     private static object Draft(JsonNode order, string comment, params object[] items) => new { expectedVersion = (string)order["version"]!, comment, items };
     private static object Item(JsonNode item, int? quantity = null) => new { id = (int)item["id"]!, productId = (int)item["productId"]!, quantity = quantity ?? (int)item["quantity"]! };
@@ -216,9 +233,7 @@ internal static class TestRunner
                 await Status(await http.GetAsync("/api/auth/me"), HttpStatusCode.Forbidden);
                 await Status(await http.GetAsync(botPath), HttpStatusCode.NotFound);
                 await Read(await http.PostAsJsonAsync(botPath + "/link", new { token }));
-                var report = await Read(await http.PostAsync(botPath + "/report", null));
-                Check((string)report["type"]! == "text" && ((string)report["text"]!).Contains("Звіт для керівника"),
-                    "Bot did not return the real manager summary");
+                await CheckPdfAsync(await http.PostAsync(botPath + "/report", null));
                 await Status(await http.DeleteAsync(botPath + "/link"), HttpStatusCode.NoContent);
                 await Status(await http.PostAsync(botPath + "/report", null), HttpStatusCode.NotFound);
             }
@@ -759,5 +774,128 @@ internal static class TestRunner
             }
             finally { http.DefaultRequestHeaders.Authorization = admin; }
         });
+
+        await Test("report templates enforce data grants and versions and produce a server PDF", async () =>
+        {
+            const string path = "/api/report-templates";
+            DateOnly day = new(2026, 10, 25);
+            var layout = new ReportLayout("orders", ["customer", "number", "date", "amount"], "number",
+                GroupBy: "status", Note: "Перевірка українських літер ї, є, і, ґ.", Landscape: true, Status: "NewOrder",
+                DefaultFrom: day, DefaultTo: day);
+            var saved = await Read(await http.PostAsJsonAsync(path, new SaveReportTemplate("Замовлення за період", layout)), HttpStatusCode.Created);
+            int id = (int)saved["id"]!;
+            long version = (long)saved["version"]!;
+            string resource = $"{path}/{id}";
+            await Status(await http.PutAsJsonAsync(resource, new SaveReportTemplate("Stale", layout, version - 1)), HttpStatusCode.Conflict);
+            await Read(await http.PutAsJsonAsync(resource, new SaveReportTemplate("Замовлення за період", layout, version)));
+            var reloaded = await http.GetFromJsonAsync<ReportTemplate>(resource);
+            Check(reloaded?.Version == version + 1 && reloaded.Layout.Columns.SequenceEqual(layout.Columns), "Column order was not persisted");
+            await Status(await http.PostAsJsonAsync("/api/reports/pdf", new GenerateReportPdf(TemplateId: id, ExpectedVersion: version)), HttpStatusCode.Conflict);
+            await Status(await http.PostAsJsonAsync("/api/reports/pdf",
+                new GenerateReportPdf(Draft: layout with { Columns = ["unlisted"] }, Title: "Invalid")), HttpStatusCode.BadRequest);
+            await Status(await http.PostAsJsonAsync("/api/reports/pdf",
+                new GenerateReportPdf(Preset: "orders", From: day.AddYears(-2), To: day)), HttpStatusCode.BadRequest);
+
+            var role = (await Get("/api/roles")).AsArray().Single(r => (string?)r?["code"] == "OpsObserver")!;
+            await Read(await http.PutAsJsonAsync($"/api/roles/{(int)role["id"]!}/permissions", new
+            {
+                expectedRevision = (long)role["version"]!, permissions = new[] { "orders.read", "reports.read" }
+            }));
+            var reader = await Read(await http.PostAsJsonAsync("/api/auth/login", new
+            {
+                login = "role-test-user", password = "role-test-user-password"
+            }));
+            var admin = http.DefaultRequestHeaders.Authorization;
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)reader["accessToken"]!);
+                var allowed = await http.GetFromJsonAsync<ReportSource[]>(path + "/catalog");
+                Check(allowed?.All(s => s.Label.Code != "products" && s.Fields.All(f => f.Code != "customer")) == true,
+                    "Restricted report data was offered by the catalog");
+                Check((await Get(path)).AsArray().Count == 0, "Restricted template appeared in the list");
+                await Status(await http.GetAsync(resource), HttpStatusCode.Forbidden);
+                await Status(await http.PostAsJsonAsync(path, new SaveReportTemplate("Forbidden", layout)), HttpStatusCode.Forbidden);
+                await Status(await http.PostAsJsonAsync("/api/reports/pdf",
+                    new GenerateReportPdf(TemplateId: id, ExpectedVersion: version + 1)), HttpStatusCode.Forbidden);
+                await Status(await http.PostAsJsonAsync("/api/reports/pdf/preview",
+                    new GenerateReportPdf(TemplateId: id, ExpectedVersion: version + 1)), HttpStatusCode.Forbidden);
+                await CheckPdfAsync(await http.GetAsync("/api/orders/1/pdf?language=en"));
+                await CheckPdfAsync(await http.PostAsJsonAsync("/api/reports/pdf",
+                    new GenerateReportPdf(Preset: "summary", From: day, To: day, Language: "en")));
+            }
+            finally { http.DefaultRequestHeaders.Authorization = admin; }
+
+            await Sql("""
+                INSERT INTO customers (full_name, email)
+                VALUES (left(repeat('ТОВ Довга українська назва підприємства ', 5), 145), 'pdf-fixture@example.com');
+                INSERT INTO orders (order_number, status_id, customer_id, created_by_user_id, created_at)
+                SELECT sample.number, status.id, customer.id, account.id, sample.moment
+                FROM (
+                    SELECT 'PDF-' || n AS number, TIMESTAMPTZ '2026-10-25 08:00:00Z' AS moment FROM generate_series(1, 90) n
+                    UNION ALL SELECT 'PDF-first', TIMESTAMPTZ '2026-10-24 21:00:00Z'
+                    UNION ALL SELECT 'PDF-last', TIMESTAMPTZ '2026-10-25 21:59:59Z'
+                    UNION ALL SELECT 'PDF-before', TIMESTAMPTZ '2026-10-24 20:59:59Z'
+                    UNION ALL SELECT 'PDF-after', TIMESTAMPTZ '2026-10-25 22:00:00Z'
+                ) sample
+                CROSS JOIN order_statuses status CROSS JOIN customers customer CROSS JOIN app_users account
+                WHERE status.code = 'NewOrder' AND customer.email = 'pdf-fixture@example.com' AND account.login = 'admin';
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price)
+                SELECT id, 1, 2, 12.34 FROM orders WHERE order_number LIKE 'PDF-%';
+                """);
+            byte[] grouped = await CheckPdfAsync(await http.PostAsJsonAsync("/api/reports/pdf",
+                new GenerateReportPdf(TemplateId: id, ExpectedVersion: version + 1)));
+            byte[] empty = await CheckPdfAsync(await http.PostAsJsonAsync("/api/reports/pdf",
+                new GenerateReportPdf(Preset: "orders", From: day.AddYears(-2), To: day.AddYears(-2))));
+
+            using var scope = services.CreateScope();
+            var capture = new CapturingReportRenderer();
+            var service = new ReportPdfService(scope.ServiceProvider.GetRequiredService<ReportTemplateService>(),
+                scope.ServiceProvider.GetRequiredService<IReportQueries>(), capture);
+            var previewRequest = new GenerateReportPdf(Draft: layout, Title: "Тестовий звіт");
+            byte[] previewPdf = await CheckPdfAsync(await http.PostAsJsonAsync("/api/reports/pdf/preview", previewRequest));
+            await service.PreviewAsync(previewRequest, "Admin", default);
+            var sample = capture.Document!;
+            var sampleRows = sample.Groups.SelectMany(group => group.Rows).ToArray();
+            Check(sampleRows.Length == 4 && sampleRows.All(row => row[0].StartsWith("Тестовий клієнт") && row[1].StartsWith("TEST-")) &&
+                sample.Context?.Contains("Тестові дані") == true && sample.Headers.SequenceEqual(new[] { "Клієнт", "Номер", "Дата", "Сума" }),
+                "Preview used live data or ignored the draft");
+            await service.GenerateAsync(new GenerateReportPdf(TemplateId: id, ExpectedVersion: version + 1, Language: "en"), "Admin", default);
+            var document = capture.Document!;
+            var numbers = document.Groups.SelectMany(g => g.Rows).Select(row => row[1]).ToArray();
+            Check(numbers.Length == 92 && numbers.Contains("PDF-first") && numbers.Contains("PDF-last") &&
+                !numbers.Contains("PDF-before") && !numbers.Contains("PDF-after"), "Kyiv DST period selected incorrect rows");
+            Check(document.Summary.Any(metric => metric.Label == "Amount" && metric.Value == "2,270.56"),
+                "PDF total does not match the selected rows");
+            var kyivSummary = await Get("/api/reports/orders?from=2026-10-25&to=2026-10-25&kyiv=true");
+            Check((int)kyivSummary["totalOrders"]! == 92 && (decimal)kyivSummary["totalAmount"]! == 2270.56m,
+                "WPF JSON statistics and PDF use different report periods");
+            foreach (string preset in new[] { "products", "low-stock" })
+                await CheckPdfAsync(await http.PostAsJsonAsync("/api/reports/pdf", new GenerateReportPdf(Preset: preset, Language: "en")));
+
+            if (Environment.GetEnvironmentVariable("CODEX_REPORT_QA_DIR") is { Length: > 0 } qa)
+            {
+                Directory.CreateDirectory(qa);
+                await File.WriteAllBytesAsync(Path.Combine(qa, "report-multipage.pdf"), grouped);
+                await File.WriteAllBytesAsync(Path.Combine(qa, "report-empty.pdf"), empty);
+                await File.WriteAllBytesAsync(Path.Combine(qa, "report-preview.pdf"), previewPdf);
+                var orderPdf = await CheckPdfAsync(await http.GetAsync("/api/orders/1/pdf"));
+                await File.WriteAllBytesAsync(Path.Combine(qa, "order-print.pdf"), orderPdf);
+            }
+
+            await Status(await http.DeleteAsync($"{resource}?expectedVersion={version}"), HttpStatusCode.Conflict);
+            await Status(await http.DeleteAsync($"{resource}?expectedVersion={version + 1}"), HttpStatusCode.NoContent);
+            await Status(await http.GetAsync(resource), HttpStatusCode.NotFound);
+        });
+    }
+
+    private sealed class CapturingReportRenderer : IReportPdfRenderer
+    {
+        public ReportDocument? Document { get; private set; }
+
+        public Task<byte[]> RenderAsync(ReportDocument report, CancellationToken ct)
+        {
+            Document = report;
+            return Task.FromResult(Array.Empty<byte>());
+        }
     }
 }

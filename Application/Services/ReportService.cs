@@ -7,10 +7,12 @@ public sealed class ReportService(IReportQueries queries) : IReportService
 {
     private const int LowStockLimit = 5;
 
-    public async Task<OrderReportDto> GetOrdersAsync(DateTime? from, DateTime? to, CancellationToken ct = default)
+    public async Task<OrderReportDto> GetOrdersAsync(DateTime? from, DateTime? to, CancellationToken ct = default, bool kyiv = false)
     {
-        var orders = await queries.GetOrdersAsync(Start(from), End(to), ct);
-        var products = await queries.GetProductSalesAsync(Start(from), End(to), ct);
+        var start = ReportCalendar.Start(from, kyiv);
+        var end = ReportCalendar.Start(to?.AddDays(1), kyiv);
+        var orders = await queries.GetOrdersAsync(start, end, ct);
+        var products = await queries.GetProductSalesAsync(start, end, ct);
         var topProduct = products.OrderByDescending(p => p.Quantity).FirstOrDefault();
         var lowStock = await queries.GetLowStockAsync(LowStockLimit, ct);
         return new OrderReportDto(orders.Count,
@@ -23,23 +25,25 @@ public sealed class ReportService(IReportQueries queries) : IReportService
             lowStock.Count, topProduct?.ProductName ?? "-", topProduct?.Quantity ?? 0);
     }
 
-    public async Task<TodayOrdersReportDto> GetTodayOrdersAsync(DateTime? date, CancellationToken ct = default)
+    public async Task<TodayOrdersReportDto> GetTodayOrdersAsync(DateTime? date, CancellationToken ct = default, bool kyiv = false)
     {
-        var day = Start(date ?? DateTime.UtcNow)!.Value;
-        var orders = await queries.GetOrdersAsync(day, day.AddDays(1), ct);
+        var day = DateTime.SpecifyKind((date ?? (kyiv ? ReportCalendar.InKyiv(DateTime.UtcNow) : DateTime.UtcNow)).Date, DateTimeKind.Utc);
+        var orders = await queries.GetOrdersAsync(ReportCalendar.Start(day, kyiv), ReportCalendar.Start(day.AddDays(1), kyiv), ct);
         return new TodayOrdersReportDto(day, orders.Count, orders.Sum(o => o.TotalAmount),
             orders.OrderByDescending(o => o.CreatedAt).ToList());
     }
 
-    public Task<IReadOnlyList<ProductSalesReportItemDto>> GetProductsAsync(DateTime? from, DateTime? to, CancellationToken ct = default) =>
-        queries.GetProductSalesAsync(Start(from), End(to), ct);
+    public Task<IReadOnlyList<ProductSalesReportItemDto>> GetProductsAsync(DateTime? from, DateTime? to,
+        CancellationToken ct = default, bool kyiv = false) =>
+        queries.GetProductSalesAsync(ReportCalendar.Start(from, kyiv), ReportCalendar.Start(to?.AddDays(1), kyiv), ct);
 
     public Task<IReadOnlyList<LowStockProductReportItemDto>> GetLowStockAsync(CancellationToken ct = default) =>
         queries.GetLowStockAsync(LowStockLimit, ct);
 
-    public async Task<ManagerSummaryReportDto> GetManagerSummaryAsync(DateTime? from, DateTime? to, CancellationToken ct = default)
+    public async Task<ManagerSummaryReportDto> GetManagerSummaryAsync(DateTime? from, DateTime? to,
+        CancellationToken ct = default, bool kyiv = false)
     {
-        var report = await GetOrdersAsync(from, to, ct);
+        var report = await GetOrdersAsync(from, to, ct, kyiv);
         string period = from.HasValue && to.HasValue ? $"Період: {from.Value:dd.MM.yyyy} - {to.Value:dd.MM.yyyy}" :
             from.HasValue ? $"Період: з {from.Value:dd.MM.yyyy}" : to.HasValue ? $"Період: до {to.Value:dd.MM.yyyy}" : "Період: весь час";
         string text = $"Звіт для керівника\n{period}\n" +
@@ -51,7 +55,4 @@ public sealed class ReportService(IReportQueries queries) : IReportService
         return new ManagerSummaryReportDto(DateTime.Now, text);
     }
 
-    // Preserve the existing API's UTC-day semantics during the persistence refactor.
-    private static DateTime? Start(DateTime? value) => value.HasValue ? DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc) : null;
-    private static DateTime? End(DateTime? value) => Start(value)?.AddDays(1);
 }

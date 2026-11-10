@@ -19,6 +19,7 @@ namespace Application.Security
         public const string UsersManage = "users.manage";
         public const string RolesManage = "roles.manage";
         public const string ReportsRead = "reports.read";
+        public const string ReportTemplatesManage = "reports.templates.manage";
         public const string ReportsTelegramSend = "reports.telegram.send";
         /// <summary>A user may use tools for system diagnostics</summary>
         public const string SystemDiagnostics = "system.diagnostics";

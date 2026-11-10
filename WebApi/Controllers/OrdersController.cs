@@ -12,7 +12,7 @@ namespace WebApi.Controllers;
 [Route("api/orders")]
 [ApiController]
 public sealed class OrdersController(IOrderService orders, IOrderEditingService editing, OrderWorkflowService workflow,
-    IPermissionProvider permissions) : ControllerBase
+    IPermissionProvider permissions, OrderPrintService printing) : ControllerBase
 {
     [HttpGet]
     [HasPermission(Permissions.OrdersRead)]
@@ -27,6 +27,16 @@ public sealed class OrdersController(IOrderService orders, IOrderEditingService 
     [HasPermission(Permissions.OrdersRead)]
     public async Task<IActionResult> GetOrderById(int id, CancellationToken ct) =>
         await orders.GetOrderByIdAsync(id, ct) is { } order ? Ok(await FilterCustomerAsync(order, ct)) : NotFound();
+
+    [HttpGet("{id:int}/pdf")]
+    [HasPermission(Permissions.OrdersRead)]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetOrderPdf(int id, CancellationToken ct, [FromQuery] string language = "uk")
+    {
+        if (await orders.GetOrderByIdAsync(id, ct) is not { } order) return NotFound();
+        var result = await printing.GenerateAsync(await FilterCustomerAsync(order, ct), language, ct);
+        return File(result.Content, result.ContentType, result.FileName);
+    }
 
     [HttpPost]
     [HasPermission(Permissions.OrdersCreate)]

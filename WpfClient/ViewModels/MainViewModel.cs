@@ -6,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using Microsoft.Win32;
 using Orders.Workflow;
 using WpfClient.Models;
 using WpfClient.Services;
@@ -177,7 +176,10 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         RefreshDataCommand = new RelayCommand(async _ => await LoadClientDataAsync(),
             _ => IsAuthenticated && !IsLoading && !IsOrderStatusActionRunning);
         RefreshReportsCommand = new RelayCommand(async _ => await LoadReportsAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
-        ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => IsAuthenticated && !IsLoading && !IsReportsLoading && CanViewReports);
+        ExportReportsToPdfCommand = new RelayCommand(async _ => await ExportReportsToPdfAsync(), _ => CanUseReportPdf && !_reportPdfBusy);
+        PrintReportCommand = new RelayCommand(async _ => await OutputReportAsync(print: true), _ => CanUseReportPdf && !_reportPdfBusy);
+        PrintOrderCommand = new RelayCommand(async _ => await PrintSelectedOrderAsync(), _ => CanPrintSelectedOrder());
+        OpenReportTemplatesCommand = new RelayCommand(async _ => await OpenReportTemplatesAsync(), _ => CanUseReportPdf && !_reportPdfBusy);
         ClearOrderFiltersCommand = new RelayCommand(_ => ClearOrderFilters(), _ => HasOrderFilters);
         ClearKanbanFiltersCommand = new RelayCommand(_ => ClearKanbanFilters(), _ => HasKanbanFilters);
         ClearProductFiltersCommand = new RelayCommand(_ => ClearProductFilters(), _ => HasProductFilters);
@@ -1417,6 +1419,8 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
     private void SignOut()
     {
         _sessionVersion++;
+        _reportTemplateWindow?.Close();
+        ReportPdfMessage = null;
         _currentUserId = 0;
         _permissions = null;
         _permissionRefresh = null;
@@ -1527,6 +1531,9 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
             var lost = previous.Except(next).ToHashSet(StringComparer.Ordinal);
             _permissions = next;
             _sessionVersion++; // Discard late data from requests started under the previous access snapshot.
+            _reportTemplateWindow?.Close();
+            ReportPdfMessage = null;
+            OnPropertyChanged(nameof(CanUseReportPdf));
             IsLoading = false;
             IsOrderDetailsLoading = false;
             if (lost.Contains("orders.read") || lost.Contains("customers.read"))
@@ -1609,6 +1616,7 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanManageUsers));
         OnPropertyChanged(nameof(CanLinkTelegram));
         OnPropertyChanged(nameof(CanViewReports));
+        OnPropertyChanged(nameof(CanUseReportPdf));
         OnPropertyChanged(nameof(CanEditSelectedOrder));
         OnOrderStatusActionPropertiesChanged();
     }
@@ -1818,58 +1826,6 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
             _reportsBusy = false;
             NotifyReports();
         }
-    }
-
-    private async Task ExportReportsToPdfAsync()
-    {
-        try
-        {
-            if (!await LoadReportsAsync() || _reportSnapshot is not { } snapshot) return;
-            int selectedTab = SelectedReportTabIndex;
-            int session = _sessionVersion;
-
-            SaveFileDialog dialog = new()
-            {
-                Title = T["PdfSaveTitle"],
-                Filter = "PDF файл (*.pdf)|*.pdf",
-                FileName = GetPdfFileName(),
-                AddExtension = true,
-                DefaultExt = ".pdf"
-            };
-
-            if (dialog.ShowDialog() != true)
-            {
-                return;
-            }
-
-            if (session != _sessionVersion || !CanViewReports) return;
-            PdfReportExporter.Save(
-                dialog.FileName, selectedTab, snapshot.Summary,
-                snapshot.From, snapshot.To, snapshot.Date,
-                snapshot.DateOrdersCount, snapshot.DateOrdersAmount,
-                snapshot.Orders, snapshot.ProductSales, snapshot.LowStock, snapshot.ManagerText);
-
-            MessageBox.Show(
-                T["PdfSaved"],
-                T["ReportsTitle"],
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-        catch (Exception exception)
-        {
-            ApiErrorMessage = T["PdfSaveFailed"] + " " + exception.Message;
-        }
-    }
-
-    private string GetPdfFileName()
-    {
-        return SelectedReportTabIndex switch
-        {
-            1 => $"orders-{TodayReportDate:yyyy-MM-dd}.pdf",
-            2 => $"products-report-{ReportDateFrom:yyyy-MM-dd}-{ReportDateTo:yyyy-MM-dd}.pdf",
-            3 => "low-stock-report.pdf",
-            _ => $"summary-report-{ReportDateFrom:yyyy-MM-dd}-{ReportDateTo:yyyy-MM-dd}.pdf"
-        };
     }
 
     private async Task LoadSelectedOrderDetailsAsync()

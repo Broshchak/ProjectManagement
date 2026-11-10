@@ -396,7 +396,7 @@ WPF-клієнт повинен підтримувати цей контракт
 | Дозволи | GET /api/permissions; GET /api/roles/permissions; PUT /api/roles/{roleId}/permissions — Admin; GET /api/auth/me/permissions — поточний користувач |
 | Workflow | GET /api/workflow; GET /api/workflow/roles; GET /api/workflow/rule-types; GET/PUT /api/workflow/draft; POST /api/workflow/draft/validate; POST /api/workflow/draft/publish |
 | Переходи | GET /api/orders/{id}/transitions; POST /api/orders/{id}/transitions/{code} |
-| Звіти | CRUD /api/report-templates; POST /api/reports/pdf |
+| Звіти | GET /api/report-templates/catalog; CRUD /api/report-templates; POST /api/reports/pdf; POST /api/reports/pdf/preview; GET /api/orders/{id}/pdf |
 | Доставка | GET /api/delivery/cities; GET /api/delivery/warehouses; GET/POST /api/orders/{id}/shipment; POST /api/orders/{id}/shipment/refresh |
 | Оплата | POST/GET /api/orders/{id}/payments; POST /api/payments/{id}/refresh; POST /api/payments/liqpay/callback |
 
@@ -416,7 +416,7 @@ API повертає DTO; неавтентифікований запит — 40
 
 Прості шаблони: тип даних (замовлення, продажі, залишки, зведення), заголовок, колонки й їх порядок, фільтри, сортування, одна група, підсумки, примітка, орієнтація. Редактор використовує відомі поля й блоки; SQL/скрипти/довільний HTML не приймаються.
 
-Спільні шаблони редагують Admin/Director, формують PDF користувачі з Reports.View та потрібними правами джерела/блоків. Сервер перевіряє JSON-схему, версію, поля, права й обсяг, формує PDF через QuestPDF із включеними українськими шрифтами. Відповідь application/pdf; клієнти отримують готові байти, попередній перегляд також формується сервером. JSON-звіти залишаються для екранів.
+Спільні шаблони редагують Admin/Director, формують PDF користувачі з Reports.View та потрібними правами джерела/блоків. Сервер перевіряє JSON-схему, версію, поля, права й обсяг, формує PDF через QuestPDF із включеними українськими шрифтами. Відповідь application/pdf; клієнти отримують готові байти. У редакторі шаблонів WPF відкриває окреме вікно з PDF на тестових даних. Для друку звітів і вибраного замовлення WPF отримує PDF із фактичними даними та відкриває системний діалог Windows. JSON-звіти залишаються для екранів. WPF передає `kyiv=true`, щоб межі періоду збігалися з PDF. Для PDF можна вибрати стандартний макет, версію збереженого шаблону або незбережений макет для перегляду.
 
 Визначити бізнес-критерій продажу; для фінансових підсумків використовувати підтверджені платежі, тестові позначати окремо. Межі дат Europe/Kyiv переводяться в UTC з урахуванням літнього часу. Формування синхронне з лімітами рядків, періоду й часу.
 

@@ -14,7 +14,7 @@ namespace WebApi.Infrastructure
             var (status, title) = exception switch
             {
                 ValidationException => (StatusCodes.Status400BadRequest, "Validation failed."),
-                WorkflowAccessException => (StatusCodes.Status403Forbidden, "Forbidden."),
+                WorkflowAccessException or ReportAccessException => (StatusCodes.Status403Forbidden, "Forbidden."),
                 ConflictException or DataConflictException => (StatusCodes.Status409Conflict, "Conflict."),
                 ServiceBusyException => (StatusCodes.Status503ServiceUnavailable, "The server is busy. Try again shortly."),
                 _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")

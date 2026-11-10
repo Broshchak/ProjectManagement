@@ -19,6 +19,9 @@ namespace Application
             services.AddScoped<IUserManagementService, UserManagementService>();
             services.AddScoped<RoleService>();
             services.AddScoped<IReportService, ReportService>();
+            services.AddScoped<ReportTemplateService>();
+            services.AddScoped<ReportPdfService>();
+            services.AddScoped<OrderPrintService>();
             services.AddScoped<IOrderEditingService, OrderEditingService>();
             services.AddScoped<OrderWorkflowService>();
 

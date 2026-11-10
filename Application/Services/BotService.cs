@@ -1,3 +1,4 @@
+using Application.Common.Exceptions;
 using Application.Common.Interfaces;
 using Application.Dtos.Reports;
 using Application.Dtos.Telegram;
@@ -65,10 +66,15 @@ namespace Application.Services
 
             if (access != BotAccess.Allowed || user is null) return new BotReportResult(access, null);
 
-            var output = await reports.GenerateAsync(
-                new ReportRequest(user.UserId, user.RoleCode, ReportChannel.Telegram), ct);
-
-            return new BotReportResult(BotAccess.Allowed, output);
+            try
+            {
+                var output = await reports.GenerateAsync(new ReportRequest(user.UserId, user.RoleCode, ReportChannel.Telegram), ct);
+                return new BotReportResult(BotAccess.Allowed, output);
+            }
+            catch (ReportAccessException)
+            {
+                return new BotReportResult(BotAccess.Forbidden, null);
+            }
         }
 
         private async Task<(BotAccess Access, BotUserInfo? User)> AuthorizeAsync(

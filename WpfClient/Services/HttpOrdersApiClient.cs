@@ -324,7 +324,7 @@ public sealed partial class HttpOrdersApiClient(HttpClient httpClient) : IOrders
     public async Task<(DateTime Date, int TotalOrders, decimal TotalAmount, IReadOnlyList<TodayOrderReportItem> Orders)> GetTodayOrdersReportAsync(DateTime date, CancellationToken cancellationToken = default)
     {
         TodayOrdersReportResponse? report = await GetJsonAsync<TodayOrdersReportResponse>(
-            "api/reports/orders/today?date=" + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            "api/reports/orders/today?kyiv=true&date=" + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             cancellationToken);
 
         if (report is null)
@@ -380,7 +380,7 @@ public sealed partial class HttpOrdersApiClient(HttpClient httpClient) : IOrders
     {
         if (from?.Date > to?.Date)
             throw new ArgumentException(LocalizationManager.Instance["InvalidReportRange"]);
-        List<string> parts = [];
+        List<string> parts = ["kyiv=true"];
 
         if (from.HasValue)
         {
@@ -392,7 +392,7 @@ public sealed partial class HttpOrdersApiClient(HttpClient httpClient) : IOrders
             parts.Add("to=" + to.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         }
 
-        return parts.Count == 0 ? string.Empty : $"?{string.Join("&", parts)}";
+        return $"?{string.Join("&", parts)}";
     }
 
     private static OrderListItem MapOrderSummary(OrderSummaryResponse order)

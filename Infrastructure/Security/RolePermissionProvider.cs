@@ -25,7 +25,11 @@ public sealed class RolePermissionProvider(IRoleRepository roles) : IPermissionP
         {
             granted.Add(Permissions.TelegramLink);
             if (granted.Contains(Permissions.ProductsRead)) granted.Add(Permissions.ProductsManage);
-            if (granted.Contains(Permissions.ReportsRead)) granted.Add(Permissions.ReportsTelegramSend);
+            if (granted.Contains(Permissions.ReportsRead))
+            {
+                granted.Add(Permissions.ReportsTelegramSend);
+                granted.Add(Permissions.ReportTemplatesManage);
+            }
         }
         if (roleCode == Roles.Admin)
         {

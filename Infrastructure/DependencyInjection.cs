@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Application.Common.Interfaces;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Repositories;
+using Infrastructure.Reports;
 using Infrastructure.Security;
 using Infrastructure.Security.PasswordHashing;
 using Infrastructure.Telegram;
@@ -38,6 +39,8 @@ namespace Infrastructure
             services.AddScoped<IProductRepository, ProductRepository>();
             services.AddScoped<ICustomerRepository, CustomerRepository>();
             services.AddScoped<IReportQueries, ReportQueries>();
+            services.AddScoped<IReportTemplateRepository, ReportTemplateRepository>();
+            services.AddSingleton<IReportPdfRenderer, QuestReportPdfRenderer>();
             services.AddScoped<IUnitOfWork, UnitOfWork>();
 
             services.AddSingleton(JwtOptions.FromConfiguration(configuration));

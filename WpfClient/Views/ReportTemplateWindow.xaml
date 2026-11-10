@@ -1,0 +1,159 @@
+<Window x:Class="WpfClient.Views.ReportTemplateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding T[ReportTemplates]}" Width="1040" Height="760" MinWidth="790" MinHeight="550"
+        WindowStartupLocation="CenterOwner" Background="#F5F7FA">
+    <Window.Resources>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#D9E1EA"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#40576D"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,9,0,4"/>
+        </Style>
+        <Style x:Key="Combo" TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="6,4"/>
+        </Style>
+        <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="9,5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,6,6"/>
+        </Style>
+    </Window.Resources>
+    <Grid Background="#F5F7FA" Margin="18">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="{Binding T[ReportTemplates]}" FontSize="22" FontWeight="SemiBold" Foreground="#205587"/>
+                    <TextBlock Text="{Binding T[ReportTemplatesHint]}" Foreground="#526377" TextWrapping="Wrap" Margin="0,4,10,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding T[Refresh]}" Command="{Binding ReloadCommand}"
+                        Style="{StaticResource ActionButtonStyle}"/>
+            </Grid>
+        </Border>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="225"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource Card}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="{Binding T[ReportSavedTemplates]}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <Button Content="{Binding T[ReportNewLayout]}" Command="{Binding NewCommand}"
+                                Style="{StaticResource SmallButton}" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding Templates}" DisplayMemberPath="Name" SelectedItem="{Binding SelectedTemplate}"
+                             BorderThickness="0" IsEnabled="{Binding IsReady}"/>
+                </DockPanel>
+            </Border>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Padding="0,0,5,0">
+                <StackPanel>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="{Binding T[ReportDataSection]}" FontSize="16" FontWeight="SemiBold"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding T[ReportSource]}" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" DisplayMemberPath="Name"
+                                              IsEnabled="{Binding CanChooseSource}" Style="{StaticResource Combo}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{Binding T[WorkflowName]}" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditLayout}"
+                                             MaxLength="100" MinHeight="32" Padding="6,4"/>
+                                </StackPanel>
+                            </Grid>
+                            <WrapPanel IsEnabled="{Binding IsReady}" Margin="0,10,0,0"
+                                       Visibility="{Binding UsesPeriod, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="{Binding T[ReportFrom]}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <DatePicker SelectedDate="{Binding From}" Width="120" MinHeight="30" Margin="0,0,12,0"/>
+                                <TextBlock Text="{Binding T[ReportTo]}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <DatePicker SelectedDate="{Binding To}" Width="120" MinHeight="30" Margin="0,0,12,0"/>
+                                <TextBlock Text="Europe/Kyiv" Foreground="#526377" VerticalAlignment="Center"/>
+                            </WrapPanel>
+                            <Grid IsEnabled="{Binding CanEditLayout}"
+                                  Visibility="{Binding IsOrderSource, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding T[Status]}" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox ItemsSource="{Binding StatusOptions}" DisplayMemberPath="Name" SelectedValuePath="Code"
+                                              SelectedValue="{Binding Status}" Style="{StaticResource Combo}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{Binding T[WorkflowCategory]}" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox ItemsSource="{Binding CategoryOptions}" DisplayMemberPath="Name" SelectedValuePath="Code"
+                                              SelectedValue="{Binding Category}" Style="{StaticResource Combo}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}" IsEnabled="{Binding CanEditLayout}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding T[ReportLayoutSection]}" FontSize="16" FontWeight="SemiBold"/>
+                            <WrapPanel Margin="0,10,0,4">
+                                <CheckBox Content="{Binding T[ReportBlockSummary]}" IsChecked="{Binding ShowSummary}" Margin="0,0,12,5"/>
+                                <CheckBox Content="{Binding T[ReportBlockTable]}" IsChecked="{Binding ShowTable}" Margin="0,0,12,5"/>
+                                <CheckBox Content="{Binding T[ReportLandscape]}" IsChecked="{Binding Landscape}" Margin="0,0,12,5"/>
+                            </WrapPanel>
+                            <Grid Visibility="{Binding ShowTable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding T[ReportColumns]}" Style="{StaticResource FieldLabel}"/>
+                                    <ListBox ItemsSource="{Binding Columns}" DisplayMemberPath="Name" SelectedItem="{Binding SelectedColumn}"
+                                             MinHeight="74" MaxHeight="132" Margin="0,0,0,6"/>
+                                    <WrapPanel>
+                                        <Button Content="{Binding T[ReportMoveUp]}" Command="{Binding MoveColumnCommand}" CommandParameter="up" Style="{StaticResource SmallButton}"/>
+                                        <Button Content="{Binding T[ReportMoveDown]}" Command="{Binding MoveColumnCommand}" CommandParameter="down" Style="{StaticResource SmallButton}"/>
+                                        <Button Content="{Binding T[ReportRemoveColumn]}" Command="{Binding RemoveColumnCommand}" Style="{StaticResource SmallButton}"/>
+                                    </WrapPanel>
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Content="{Binding T[WorkflowAdd]}" Command="{Binding AddColumnCommand}"
+                                                Style="{StaticResource SmallButton}" Margin="6,0,0,0"/>
+                                        <ComboBox ItemsSource="{Binding Fields}" SelectedItem="{Binding AvailableColumn}" DisplayMemberPath="Name"
+                                                  Style="{StaticResource Combo}"/>
+                                    </DockPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{Binding T[ReportSort]}" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox ItemsSource="{Binding SortOptions}" DisplayMemberPath="Name" SelectedValuePath="Code"
+                                              SelectedValue="{Binding SortBy}" Style="{StaticResource Combo}"/>
+                                    <CheckBox Content="{Binding T[ReportDescending]}" IsChecked="{Binding Descending}" Margin="0,8,0,0"/>
+                                    <TextBlock Text="{Binding T[ReportGroup]}" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox ItemsSource="{Binding GroupOptions}" DisplayMemberPath="Name" SelectedValuePath="Code"
+                                              SelectedValue="{Binding GroupBy}" Style="{StaticResource Combo}"/>
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="{Binding T[ReportNote]}" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000" AcceptsReturn="True"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="60" Padding="6"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+        <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,12,0,0" Padding="12">
+            <StackPanel>
+                <WrapPanel>
+                    <Button Content="{Binding T[ReportSaveTemplate]}" Command="{Binding SaveCommand}" Style="{StaticResource SmallButton}"
+                            Visibility="{Binding CanEdit, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Button Content="{Binding T[RoleDelete]}" Command="{Binding DeleteCommand}" Style="{StaticResource SmallButton}"
+                            Visibility="{Binding CanEdit, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Button Content="{Binding T[ReportPreview]}" Command="{Binding PreviewCommand}" Style="{StaticResource SmallButton}"/>
+                    <Button Content="{Binding T[ExportPdf]}" Command="{Binding DownloadCommand}" Style="{StaticResource SmallButton}"/>
+                    <Button Content="{Binding T[PrintPdf]}" Command="{Binding PrintCommand}" Style="{StaticResource SmallButton}"/>
+                </WrapPanel>
+                <TextBlock Text="{Binding Message}" Foreground="#205587" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding Error}" Foreground="#A32932" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
