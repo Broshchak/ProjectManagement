@@ -11,6 +11,7 @@ public interface IUserRepository
     Task<RoleEntity?> GetRoleByCodeAsync(string roleCode, CancellationToken ct = default);
     Task AddAsync(AppUserEntity user, CancellationToken ct = default);
     Task<AuthUserInfo?> GetActiveAuthInfoAsync(int userId, CancellationToken ct = default);
+    Task<bool> IsLastActiveAdminAsync(int userId, CancellationToken ct = default);
     Task<IReadOnlyList<UserDetails>> GetAllAsync(CancellationToken ct = default);
     Task<UserDetails?> GetDetailsAsync(int id, CancellationToken ct = default);
     Task<AppUserEntity?> FindAsync(int id, CancellationToken ct = default);

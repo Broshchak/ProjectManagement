@@ -1,0 +1,228 @@
+<UserControl x:Class="WpfClient.Views.WorkflowEditorView"
+             x:Name="Editor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#D9E1EA"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="18"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#394A5E"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,12,0,4"/>
+        </Style>
+        <Style x:Key="Field" TargetType="TextBox">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+            <Setter Property="Margin" Value="0,0,8,8"/>
+        </Style>
+        <Style x:Key="ListButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="11,7"/>
+        </Style>
+        <Style x:Key="FeedbackText" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="#46576B"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabHeader" Background="#E8EEF5" BorderBrush="#D9E1EA" BorderThickness="1"
+                                CornerRadius="7,7,0,0" Margin="0,0,5,0" Padding="15,8">
+                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabHeader" Property="Background" Value="#F5F8FC"/>
+                                <Setter Property="Foreground" Value="#255C99"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="TabHeader" Property="BorderBrush" Value="#7AA2F7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ListItem" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="9,6"/>
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#F5F7FA">
+        <StackPanel Margin="2,2,8,10">
+            <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="{Binding T[WorkflowIntro]}" Foreground="#526377" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <WrapPanel>
+                        <Button Content="{Binding T[Refresh]}" Command="{Binding RefreshCommand}" Style="{StaticResource ToolbarButton}"/>
+                        <Button Content="{Binding T[WorkflowSaveDraft]}" Command="{Binding SaveCommand}" Style="{StaticResource ToolbarButton}"/>
+                        <Button Content="{Binding T[WorkflowValidate]}" Command="{Binding ValidateCommand}" Style="{StaticResource ToolbarButton}"/>
+                        <Button Content="{Binding T[WorkflowPublish]}" Command="{Binding PublishCommand}" Style="{StaticResource ToolbarButton}"/>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding T[WorkflowUnsaved]}" Foreground="#8D4C16" TextWrapping="Wrap"
+                               Visibility="{Binding IsDirty, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding Message, TargetNullValue=''}" Foreground="#255C99" Style="{StaticResource FeedbackText}"/>
+                    <TextBlock Text="{Binding Error, TargetNullValue=''}" Foreground="#A32932" Style="{StaticResource FeedbackText}"/>
+                    <ItemsControl ItemsSource="{Binding Issues}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Foreground="#A32932" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+            <TabControl x:Name="WorkflowTabs" IsEnabled="{Binding IsReady}" BorderBrush="#D9E1EA" Background="#F5F8FC" Padding="14">
+                <TabItem Header="{Binding T[WorkflowStates]}">
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <WrapPanel>
+                                    <Button Content="{Binding T[WorkflowAdd]}" Command="{Binding AddStateCommand}" Style="{StaticResource ListButton}"/>
+                                    <Button Content="{Binding T[RoleDelete]}" Command="{Binding RemoveStateCommand}" Style="{StaticResource ListButton}"/>
+                                </WrapPanel>
+                                <ListBox ItemsSource="{Binding States}" SelectedItem="{Binding SelectedState}" MaxHeight="450"
+                                         BorderThickness="0" ItemContainerStyle="{StaticResource ListItem}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Code}" Foreground="#546474" FontSize="12"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Style="{StaticResource Card}">
+                            <StackPanel DataContext="{Binding SelectedState}">
+                                <TextBlock Text="{Binding DataContext.T[WorkflowStateDetails], ElementName=Editor}" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowName], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}" MaxLength="80"/>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowCode], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}" MaxLength="30"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DataContext.T[WorkflowPosition], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                        <TextBox Text="{Binding SortOrder, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}" MaxLength="5"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="{Binding DataContext.T[WorkflowColor], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                        <TextBox Text="{Binding Color, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}" MaxLength="7"/>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowCategory], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding DataContext.Categories, ElementName=Editor}" DisplayMemberPath="Name"
+                                          SelectedValuePath="Code" SelectedValue="{Binding Category}" MinHeight="32"/>
+                                <WrapPanel Margin="0,14,0,0">
+                                    <CheckBox Content="{Binding DataContext.T[WorkflowActive], ElementName=Editor}" IsChecked="{Binding IsActive}" Margin="0,0,14,6"/>
+                                    <CheckBox Content="{Binding DataContext.T[WorkflowInitial], ElementName=Editor}" IsChecked="{Binding IsInitial}" Margin="0,0,14,6"/>
+                                    <CheckBox Content="{Binding DataContext.T[WorkflowFinal], ElementName=Editor}" IsChecked="{Binding IsFinal}" Margin="0,0,14,6"/>
+                                    <CheckBox Content="{Binding DataContext.T[WorkflowAllowEdit], ElementName=Editor}" IsChecked="{Binding CanEditItems}" Margin="0,0,14,6"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="{Binding T[WorkflowTransitions]}">
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <WrapPanel>
+                                    <Button Content="{Binding T[WorkflowAdd]}" Command="{Binding AddTransitionCommand}" Style="{StaticResource ListButton}"/>
+                                    <Button Content="{Binding T[RoleDelete]}" Command="{Binding RemoveTransitionCommand}" Style="{StaticResource ListButton}"/>
+                                </WrapPanel>
+                                <ListBox ItemsSource="{Binding Transitions}" SelectedItem="{Binding SelectedTransition}" MaxHeight="460"
+                                         BorderThickness="0" ItemContainerStyle="{StaticResource ListItem}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Foreground="#546474" FontSize="12" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding From, Mode=OneWay}"/><Run Text=" → "/><Run Text="{Binding To, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Style="{StaticResource Card}">
+                            <StackPanel DataContext="{Binding SelectedTransition}">
+                                <TextBlock Text="{Binding DataContext.T[WorkflowTransitionDetails], ElementName=Editor}" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowName], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}" MaxLength="80"/>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowCode], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}" MaxLength="30"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DataContext.T[WorkflowFrom], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                        <ComboBox ItemsSource="{Binding DataContext.States, ElementName=Editor}" DisplayMemberPath="Name"
+                                                  SelectedValuePath="Code" SelectedValue="{Binding From}" MinHeight="32"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="{Binding DataContext.T[WorkflowTo], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                        <ComboBox ItemsSource="{Binding DataContext.States, ElementName=Editor}" DisplayMemberPath="Name"
+                                                  SelectedValuePath="Code" SelectedValue="{Binding To}" MinHeight="32"/>
+                                    </StackPanel>
+                                </Grid>
+                                <CheckBox Content="{Binding DataContext.T[WorkflowActive], ElementName=Editor}" IsChecked="{Binding IsActive}" Margin="0,12,0,0"/>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowRoles], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowRolesHint], ElementName=Editor}" Foreground="#546474" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                <ItemsControl ItemsSource="{Binding Roles}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate><CheckBox Content="{Binding Name}" IsChecked="{Binding Enabled}" Margin="0,0,14,5"/></DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding DataContext.T[WorkflowRules], ElementName=Editor}" Style="{StaticResource FieldLabel}"/>
+                                <ItemsControl ItemsSource="{Binding Rules}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate><CheckBox Content="{Binding Name}" IsChecked="{Binding Enabled}" Margin="0,0,0,5"/></DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

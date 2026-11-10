@@ -18,7 +18,9 @@ public sealed class OrderListItem
 
     public string Status { get; set; } = string.Empty;
 
-    public string StatusText => OrderStatusNames.ToText(Status);
+    public string? StatusName { get; set; }
+    public string? StatusCategory { get; set; }
+    public string StatusText => OrderStatusNames.ToText(Status, StatusName);
 
     public decimal Total { get; set; }
 

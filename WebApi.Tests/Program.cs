@@ -11,6 +11,7 @@ using Infrastructure.Security;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Npgsql;
+using Orders.Workflow;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using WebApi;
@@ -26,6 +27,8 @@ internal static class TestRunner
     private static HttpClient http = null!;
     private static string connectionString = "";
     private static IServiceProvider services = null!;
+    private static string rolePermissionsMigration = "";
+    private static string workflowMigration = "";
 
     private static async Task<int> Main()
     {
@@ -50,6 +53,11 @@ internal static class TestRunner
             await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/02_seed_data.sql")));
             await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/03_auth.sql")));
             await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/04_telegram.sql")));
+            await Sql(await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/05_roles.sql")));
+            rolePermissionsMigration = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/06_role_permissions.sql"));
+            await Sql(rolePermissionsMigration);
+            workflowMigration = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "SQL/07_order_workflow.sql"));
+            await Sql(workflowMigration);
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", Args = [] });
             builder.Logging.ClearProviders();
             builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, 0));
@@ -127,6 +135,13 @@ internal static class TestRunner
     }
     private static object Draft(JsonNode order, string comment, params object[] items) => new { expectedVersion = (string)order["version"]!, comment, items };
     private static object Item(JsonNode item, int? quantity = null) => new { id = (int)item["id"]!, productId = (int)item["productId"]!, quantity = quantity ?? (int)item["quantity"]! };
+
+    private static async Task<HttpResponseMessage> DeleteRoleAsync(int id, long version)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/roles/{id}");
+        request.Headers.IfMatch.Add(new EntityTagHeaderValue($"\"{version}\""));
+        return await http.SendAsync(request);
+    }
 
     private static async Task Run()
     {
@@ -208,6 +223,177 @@ internal static class TestRunner
                 await Status(await http.PostAsync(botPath + "/report", null), HttpStatusCode.NotFound);
             }
             finally { http.DefaultRequestHeaders.Authorization = admin; }
+        });
+
+        await Test("only Admin can manage roles; system roles and last administrator are protected", async () =>
+        {
+            var admin = await Get("/api/auth/me");
+            int adminUserId = (int)admin["id"]!;
+            var adminRole = (await Get("/api/roles")).AsArray().Single(r => (string)r!["code"]! == "Admin")!;
+            int adminRoleId = (int)adminRole["id"]!;
+            long version = (long)adminRole["version"]!;
+            Check((bool)adminRole["isSystem"]!, "Seeded Admin role is not protected");
+            await Status(await http.PutAsJsonAsync($"/api/roles/{adminRoleId}/active", new { isActive = false, expectedVersion = version }), HttpStatusCode.Conflict);
+            await Status(await DeleteRoleAsync(adminRoleId, version), HttpStatusCode.Conflict);
+            await Status(await http.PostAsJsonAsync("/api/roles", new { code = "ADMIN", name = "Reserved" }), HttpStatusCode.Conflict);
+            await Status(await http.PutAsJsonAsync($"/api/users/{adminUserId}", new
+            {
+                login = "admin", fullName = "Admin", role = "Admin", isActive = false
+            }), HttpStatusCode.Conflict);
+            await Status(await http.PutAsJsonAsync($"/api/users/{adminUserId}", new
+            {
+                login = "admin", fullName = "Admin", role = "Director", isActive = true
+            }), HttpStatusCode.Conflict);
+
+            await Read(await http.PostAsJsonAsync("/api/users", new
+            {
+                login = "role-test-director", fullName = "Director", role = "Director", password = "role-test-director-password"
+            }), HttpStatusCode.Created);
+            var director = await Read(await http.PostAsJsonAsync("/api/auth/login", new
+            {
+                login = "role-test-director", password = "role-test-director-password"
+            }));
+            var adminAuth = http.DefaultRequestHeaders.Authorization;
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)director["accessToken"]!);
+                await Status(await http.GetAsync("/api/roles"), HttpStatusCode.Forbidden);
+                await Status(await http.PostAsJsonAsync("/api/roles", new { code = "DirectorAttempt", name = "No access" }),
+                    HttpStatusCode.Forbidden);
+            }
+            finally { http.DefaultRequestHeaders.Authorization = adminAuth; }
+        });
+
+        await Test("role versioning, blocking and assignment are enforced by the API", async () =>
+        {
+            var role = await Read(await http.PostAsJsonAsync("/api/roles", new { code = "OpsObserver", name = "Observer" }), HttpStatusCode.Created);
+            int id = (int)role["id"]!;
+            long firstVersion = (long)role["version"]!;
+            await Status(await http.PostAsJsonAsync("/api/roles", new { code = "opsobserver", name = "Duplicate" }), HttpStatusCode.Conflict);
+            role = await Read(await http.PutAsJsonAsync($"/api/roles/{id}", new { name = "Operations Observer", expectedVersion = firstVersion }));
+            Check((string)role["code"]! == "OpsObserver" && (long)role["version"]! > firstVersion, "Rename changed the code or did not advance the version");
+            await Status(await http.PutAsJsonAsync($"/api/roles/{id}", new { name = "Stale", expectedVersion = firstVersion }), HttpStatusCode.Conflict);
+            await Status(await http.DeleteAsync($"/api/roles/{id}"), HttpStatusCode.PreconditionRequired);
+
+            await Read(await http.PostAsJsonAsync("/api/users", new
+            {
+                login = "role-test-user", fullName = "Observer", role = "OpsObserver", password = "role-test-user-password"
+            }), HttpStatusCode.Created);
+            var login = await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "role-test-user", password = "role-test-user-password" }));
+            var admin = http.DefaultRequestHeaders.Authorization;
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)login["accessToken"]!);
+                await Get("/api/auth/me");
+                await Status(await http.GetAsync("/api/orders"), HttpStatusCode.Forbidden);
+            }
+            finally { http.DefaultRequestHeaders.Authorization = admin; }
+
+            role = await Read(await http.PutAsJsonAsync($"/api/roles/{id}/active", new { isActive = false, expectedVersion = (long)role["version"]! }));
+            Check(!(bool)role["isActive"]!, "Blocked role still marked active");
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)login["accessToken"]!);
+                await Status(await http.GetAsync("/api/auth/me"), HttpStatusCode.Unauthorized);
+                await Status(await http.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = (string)login["refreshToken"]! }), HttpStatusCode.Unauthorized);
+                await Status(await http.PostAsJsonAsync("/api/auth/login", new { login = "role-test-user", password = "role-test-user-password" }), HttpStatusCode.Unauthorized);
+            }
+            finally { http.DefaultRequestHeaders.Authorization = admin; }
+            await Status(await http.PostAsJsonAsync("/api/users", new
+            {
+                login = "blocked-assignment", fullName = "Blocked", role = "OpsObserver", password = "blocked-assignment-password"
+            }), HttpStatusCode.BadRequest);
+            await Status(await DeleteRoleAsync(id, (long)role["version"]!), HttpStatusCode.Conflict);
+
+            await Read(await http.PutAsJsonAsync($"/api/roles/{id}/active", new { isActive = true, expectedVersion = (long)role["version"]! }));
+            await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "role-test-user", password = "role-test-user-password" }));
+            var unused = await Read(await http.PostAsJsonAsync("/api/roles", new { code = "UnusedRole", name = "Unused" }), HttpStatusCode.Created);
+            await Status(await DeleteRoleAsync((int)unused["id"]!, (long)unused["version"]!), HttpStatusCode.NoContent);
+        });
+
+        await Test("section visibility is versioned, takes effect for existing JWTs and cannot grant editing", async () =>
+        {
+            var catalog = (await Get("/api/permissions")).AsArray();
+            Check(catalog.Any(p => (string?)p?["code"] == "board.read" && (string?)p?["requires"] == "orders.read"),
+                "Board dependency is missing");
+            var roles = (await Get("/api/roles")).AsArray();
+            int roleId = (int)roles.Single(r => (string?)r?["code"] == "OpsObserver")!["id"]!;
+            var matrix = (await Get("/api/roles/permissions")).AsArray();
+            var row = matrix.Single(r => (int)r!["roleId"]! == roleId)!;
+            long revision = (long)row["revision"]!;
+            var user = await Read(await http.PostAsJsonAsync("/api/auth/login", new
+            {
+                login = "role-test-user", password = "role-test-user-password"
+            }));
+
+            await Status(await http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new
+            {
+                expectedRevision = revision, permissions = new[] { "roles.manage" }
+            }), HttpStatusCode.BadRequest);
+            await Status(await http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new
+            {
+                expectedRevision = revision, permissions = new[] { "board.read" }
+            }), HttpStatusCode.BadRequest);
+
+            var saved = await Read(await http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new
+            {
+                expectedRevision = revision, permissions = new[] { "orders.read", "board.read", "reports.read", "products.read" }
+            }));
+            await Status(await http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new
+            {
+                expectedRevision = revision, permissions = Array.Empty<string>()
+            }), HttpStatusCode.Conflict);
+
+            var adminAuth = http.DefaultRequestHeaders.Authorization;
+            var userAuth = new AuthenticationHeaderValue("Bearer", (string)user["accessToken"]!);
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = userAuth;
+                var access = await Get("/api/auth/me/permissions");
+                var permissions = access["permissions"]!.AsArray().Select(p => (string)p!).ToArray();
+                Check(permissions.Contains("reports.read") && permissions.Contains("board.read") &&
+                    !permissions.Contains("orders.edit") && !permissions.Contains("products.manage"), "Read grants escalated writes");
+                var orders = (await Get("/api/orders")).AsArray();
+                int orderId = (int)orders.First()!["id"]!;
+                Check(orders.All(o => (string?)o?["customerFullName"] == ""), "Order list exposes customer identity");
+                var details = await Get($"/api/orders/{orderId}");
+                Check((int)details["customerId"]! == 0 && details["customerEmail"] is null, "Order detail exposes customer contact");
+                await Get("/api/reports/orders");
+                await Get("/api/products");
+                await Status(await http.GetAsync("/api/customers"), HttpStatusCode.Forbidden);
+                await Status(await http.GetAsync("/api/roles/permissions"), HttpStatusCode.Forbidden);
+                await Status(await http.PostAsJsonAsync($"/api/orders/{orderId}/status", new { action = "register" }), HttpStatusCode.Forbidden);
+                await Status(await http.PutAsJsonAsync("/api/products/1/stock", new { quantity = 0 }), HttpStatusCode.Forbidden);
+
+                http.DefaultRequestHeaders.Authorization = adminAuth;
+                await Read(await http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new
+                {
+                    expectedRevision = (long)saved["revision"]!, permissions = new[] { "products.read" }
+                }));
+                var viewer = matrix.Single(r => (int)r!["roleId"]! ==
+                    (int)roles.Single(r => (string?)r?["code"] == "Viewer")!["id"]!)!;
+                int viewerId = (int)viewer["roleId"]!;
+                var originalViewer = viewer["permissions"]!.AsArray().Select(p => (string)p!).ToArray();
+                var revokedViewer = await Read(await http.PutAsJsonAsync($"/api/roles/{viewerId}/permissions", new
+                {
+                    expectedRevision = (long)viewer["revision"]!, permissions = originalViewer.Where(p => p != "reports.read").ToArray()
+                }));
+                await Sql(rolePermissionsMigration);
+                var afterMigration = (await Get("/api/roles/permissions")).AsArray()
+                    .Single(r => (int)r!["roleId"]! == viewerId)!;
+                Check(afterMigration["permissions"]!.AsArray().All(p => (string?)p != "reports.read"),
+                    "Reapplying the seed restored a revoked permission");
+                await Read(await http.PutAsJsonAsync($"/api/roles/{viewerId}/permissions", new
+                {
+                    expectedRevision = (long)revokedViewer["revision"]!, permissions = originalViewer
+                }));
+
+                http.DefaultRequestHeaders.Authorization = userAuth;
+                await Status(await http.GetAsync("/api/reports/orders"), HttpStatusCode.Forbidden);
+                await Status(await http.GetAsync("/api/orders"), HttpStatusCode.Forbidden);
+                await Get("/api/products");
+            }
+            finally { http.DefaultRequestHeaders.Authorization = adminAuth; }
         });
 
         await Test("unsupported or unconfigured database provider fails before connecting", () =>
@@ -460,6 +646,118 @@ internal static class TestRunner
             await Status(await http.PostAsJsonAsync($"/api/orders/{cancelledId}/status", new { action = "register" }), HttpStatusCode.BadRequest);
             Check((string)cancelled["statusCode"]! == "Cancelled" && cancelled["statusHistory"]!.AsArray().Count == 2 &&
                 (await Get($"/api/orders/{cancelledId}")).ToJsonString() == cancelled.ToJsonString(), "Cancellation history is inconsistent");
+        });
+
+        await Test("board actions return the current state and exclude stock-blocked transitions", async () =>
+        {
+            var created = await Read(await http.PostAsJsonAsync("/api/orders", new
+            {
+                orderNumber = "board-stock-guard", customerId, items = new[] { new { productId = 1, quantity = 1 } }
+            }), HttpStatusCode.Created);
+            int id = (int)created["id"]!;
+            var registered = await Read(await http.PostAsJsonAsync($"/api/orders/{id}/status", new { action = "register" }));
+            string path = $"/api/orders/{id}/transitions";
+            int originalStock = (int)(await Get("/api/products/1/stock"))["quantity"]!;
+            await Sql("UPDATE product_stocks SET quantity = 0 WHERE product_id = 1");
+            try
+            {
+                var snapshot = await http.GetFromJsonAsync<OrderWorkflowActions>(path) ?? throw new Exception("Actions missing");
+                Check(snapshot.StatusCode == "Registered" && snapshot.OrderVersion == (string?)registered["version"] &&
+                    snapshot.Actions.Any(action => action.Code == "cancel") && snapshot.Actions.All(action => action.Code != "grant"),
+                    "Board exposed a blocked destination or returned a different order snapshot");
+                var request = new ExecuteWorkflowTransition(snapshot.WorkflowRevision, snapshot.OrderVersion, null);
+                await Status(await http.PostAsJsonAsync(path + "/grant", request), HttpStatusCode.BadRequest);
+                Check((await Get($"/api/orders/{id}"))["statusHistory"]!.AsArray().Count == 2, "A rejected drop wrote history");
+            }
+            finally { await Sql($"UPDATE product_stocks SET quantity = {originalStock} WHERE product_id = 1"); }
+            var restored = await http.GetFromJsonAsync<OrderWorkflowActions>(path);
+            Check(restored?.Actions.Any(action => action.Code == "grant") == true, "Restored stock did not restore the action");
+        });
+
+        await Test("workflow draft, publication and guarded transitions are versioned", async () =>
+        {
+            const string draftPath = "/api/workflow/draft";
+            var admin = http.DefaultRequestHeaders.Authorization;
+            var customRole = (await Get("/api/roles")).AsArray().Single(role => (string?)role?["code"] == "OpsObserver")!;
+            await Read(await http.PutAsJsonAsync($"/api/roles/{(int)customRole["id"]!}/permissions", new
+            {
+                expectedRevision = (long)customRole["version"]!, permissions = new[] { "orders.read" }
+            }));
+            var observer = await Read(await http.PostAsJsonAsync("/api/auth/login", new
+            {
+                login = "role-test-user", password = "role-test-user-password"
+            }));
+            var viewer = await Read(await http.PostAsJsonAsync("/api/auth/login", new { login = "viewer", password = "previous-format-password" }));
+            var director = await Read(await http.PostAsJsonAsync("/api/auth/login", new
+            {
+                login = "role-test-director", password = "role-test-director-password"
+            }));
+            try
+            {
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)viewer["accessToken"]!);
+                await Get("/api/workflow");
+                await Status(await http.GetAsync(draftPath), HttpStatusCode.Forbidden);
+
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)director["accessToken"]!);
+                var draft = await http.GetFromJsonAsync<WorkflowDraft>(draftPath) ?? throw new Exception("Draft missing");
+                var state = new WorkflowState("UnderReview", "На перевірці", 7, "InProgress", false, false, true, "#536BC5");
+                var review = new WorkflowTransition("review", "Передати на перевірку", "NewOrder", state.Code,
+                    ["Director"], ["CommentRequired"]);
+                var finish = new WorkflowTransition("resume", "Зареєструвати", state.Code, "Registered", ["OpsObserver"], []);
+                var invalid = new WorkflowDefinition([.. draft.Definition.States, state], [.. draft.Definition.Transitions, review]);
+                var invalidResponse = await Read(await http.PutAsJsonAsync(draftPath, new SaveWorkflowDraft(draft.Version, invalid)));
+                long invalidVersion = (long)invalidResponse["version"]!;
+                var problems = await Read(await http.PostAsJsonAsync(draftPath + "/validate", new PublishWorkflow(invalidVersion, draft.PublishedRevision)));
+                Check(problems["errors"]!.AsArray().Count > 0, "Dead-end state passed validation");
+                await Status(await http.PostAsJsonAsync(draftPath + "/publish", new PublishWorkflow(invalidVersion, draft.PublishedRevision)),
+                    HttpStatusCode.BadRequest);
+                Check((long)(await Get("/api/workflow"))["revision"]! == draft.PublishedRevision, "Invalid draft became active");
+
+                var valid = invalid with { Transitions = [.. invalid.Transitions, finish] };
+                var saved = await Read(await http.PutAsJsonAsync(draftPath, new SaveWorkflowDraft(invalidVersion, valid)));
+                await Status(await http.PutAsJsonAsync(draftPath, new SaveWorkflowDraft(invalidVersion, valid)), HttpStatusCode.Conflict);
+                await Read(await http.PostAsJsonAsync(draftPath + "/publish", new PublishWorkflow((long)saved["version"]!, draft.PublishedRevision)));
+                var published = await http.GetFromJsonAsync<WorkflowCatalog>("/api/workflow") ?? throw new Exception("Catalog missing");
+                Check(published.Revision == draft.PublishedRevision + 1 && published.States.Contains(state), "Published catalog did not contain the new state");
+
+                var created = await Read(await http.PostAsJsonAsync("/api/orders", new
+                {
+                    orderNumber = "workflow-review", customerId, items = new[] { new { productId = 1, quantity = 1 } }
+                }), HttpStatusCode.Created);
+                int id = (int)created["id"]!;
+                string transitions = $"/api/orders/{id}/transitions";
+                var actions = await http.GetFromJsonAsync<OrderWorkflowActions>(transitions) ?? throw new Exception("Actions missing");
+                Check(actions.Actions.Any(action => action.Code == review.Code && action.RequiresComment), "Configured action not available");
+                var request = new ExecuteWorkflowTransition(actions.WorkflowRevision, actions.OrderVersion, "Checked by Director");
+
+                http.DefaultRequestHeaders.Authorization = admin;
+                await Status(await http.PostAsJsonAsync(transitions + "/review", request), HttpStatusCode.Forbidden);
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)director["accessToken"]!);
+                await Status(await http.PostAsJsonAsync(transitions + "/review", request with { Comment = null }), HttpStatusCode.BadRequest);
+                await Status(await http.PostAsJsonAsync(transitions + "/review", request with { ExpectedWorkflowRevision = draft.PublishedRevision }),
+                    HttpStatusCode.Conflict);
+                var results = await Task.WhenAll(http.PostAsJsonAsync(transitions + "/review", request), http.PostAsJsonAsync(transitions + "/review", request));
+                Check(results.Count(r => r.StatusCode == HttpStatusCode.OK) == 1 && results.Count(r => r.StatusCode == HttpStatusCode.Conflict) == 1,
+                    "Repeated transition did not have exactly one winner");
+                foreach (var result in results) result.Dispose();
+                var moved = await Get($"/api/orders/{id}");
+                Check((string)moved["statusCode"]! == state.Code && (bool)moved["canEditItems"]! &&
+                    moved["statusHistory"]!.AsArray().Count == 2 &&
+                    (string)moved["statusHistory"]![1]!["comment"]! == request.Comment, "Transition or its history was lost");
+                await Sql(workflowMigration);
+                var afterMigration = await http.GetFromJsonAsync<WorkflowCatalog>("/api/workflow");
+                Check(afterMigration?.Revision == published.Revision && afterMigration.States.Contains(state),
+                    "Reapplying the migration reset the published workflow");
+
+                http.DefaultRequestHeaders.Authorization = new("Bearer", (string)observer["accessToken"]!);
+                var observerActions = await http.GetFromJsonAsync<OrderWorkflowActions>(transitions) ?? throw new Exception("Actions missing");
+                Check(observerActions.Actions.Single().Code == "resume", "Custom role did not receive its explicit transition");
+                await Status(await http.PutAsJsonAsync($"/api/orders/{id}", Draft(moved, "blocked", Item(moved["items"]![0]!))),
+                    HttpStatusCode.Forbidden);
+                await Read(await http.PostAsJsonAsync(transitions + "/resume",
+                    new ExecuteWorkflowTransition(observerActions.WorkflowRevision, observerActions.OrderVersion, null)));
+            }
+            finally { http.DefaultRequestHeaders.Authorization = admin; }
         });
     }
 }

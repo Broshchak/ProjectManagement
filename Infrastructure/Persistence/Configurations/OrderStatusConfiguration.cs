@@ -17,11 +17,11 @@ namespace Infrastructure.Persistence.Configurations
                 .HasColumnType("smallint").IsRequired();
             builder.Property(os => os.IsFinal).HasColumnName("is_final")
                 .IsRequired().HasDefaultValue(false);
+            builder.Property(os => os.CanEditItems).HasColumnName("can_edit_items");
+            builder.Property(os => os.Category).HasColumnName("category").HasMaxLength(16);
 
             builder.HasIndex(os => os.Code).IsUnique()
                 .HasDatabaseName("order_statuses_code_key");
-            builder.HasIndex(os => os.SortOrder).IsUnique()
-                .HasDatabaseName("order_statuses_sort_order_key");
         }
     }
 }

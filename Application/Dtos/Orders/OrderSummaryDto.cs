@@ -11,6 +11,7 @@
         decimal TotalAmount,
         string CurrencyCode,
         string? Comment,
-        DateTime CreatedAt
+        DateTime CreatedAt,
+        string StatusCategory
     );
 }

@@ -17,8 +17,10 @@ namespace Application
             services.AddScoped<IProductService, ProductService>();
             services.AddScoped<ICustomerService, CustomerService>();
             services.AddScoped<IUserManagementService, UserManagementService>();
+            services.AddScoped<RoleService>();
             services.AddScoped<IReportService, ReportService>();
             services.AddScoped<IOrderEditingService, OrderEditingService>();
+            services.AddScoped<OrderWorkflowService>();
 
             return services;
         }

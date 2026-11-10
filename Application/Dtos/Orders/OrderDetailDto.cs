@@ -18,7 +18,9 @@
         DateTime CreatedAt,
         DateTime UpdatedAt,
         IReadOnlyCollection<OrderItemDto> Items,
-        IReadOnlyCollection<OrderStatusHistoryDto> StatusHistory
+        IReadOnlyCollection<OrderStatusHistoryDto> StatusHistory,
+        bool CanEditItems,
+        string StatusCategory
     )
     {
         public string Version => OrderVersion.Calculate(this);

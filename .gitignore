@@ -350,6 +350,12 @@ ASALocalRun/
 # Local History for Visual Studio
 .localhistory/
 
+# Local Telegram bot credentials and retired cache
+/TelegramBot/.env
+/TelegramBot/.venv/
+/TelegramBot/data/
+/TelegramBot/**/__pycache__/
+
 # BeatPulse healthcheck temp database
 healthchecksdb
 

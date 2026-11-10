@@ -22,7 +22,10 @@ public sealed class OrderDetail
 
     public string Status { get; set; } = string.Empty;
 
-    public string StatusText => OrderStatusNames.ToText(Status);
+    public string? StatusName { get; set; }
+    public string? StatusCategory { get; set; }
+    public bool? CanEditItems { get; set; }
+    public string StatusText => OrderStatusNames.ToText(Status, StatusName);
 
     public decimal Total { get; set; }
 
@@ -94,11 +97,13 @@ public sealed class OrderStatusHistoryItem
 {
     public string PreviousStatus { get; set; } = string.Empty;
 
-    public string PreviousStatusText => OrderStatusNames.ToText(PreviousStatus);
+    public string? PreviousStatusName { get; set; }
+    public string PreviousStatusText => OrderStatusNames.ToText(PreviousStatus, PreviousStatusName);
 
     public string NewStatus { get; set; } = string.Empty;
 
-    public string NewStatusText => OrderStatusNames.ToText(NewStatus);
+    public string? NewStatusName { get; set; }
+    public string NewStatusText => OrderStatusNames.ToText(NewStatus, NewStatusName);
 
     public string ChangedBy { get; set; } = string.Empty;
 

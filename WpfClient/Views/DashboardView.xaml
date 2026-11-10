@@ -71,7 +71,7 @@
                             <TextBlock Text="{Binding Summary.ShippedOrders}" FontSize="22" FontWeight="SemiBold" />
                         </StackPanel>
                         <StackPanel Margin="0,0,14,0">
-                            <TextBlock Text="{Binding Path=T[Invoiced]}" Foreground="#687789" />
+                            <TextBlock Text="{Binding Path=T[WorkflowCategoryCompleted]}" Foreground="#687789" />
                             <TextBlock Text="{Binding Summary.InvoicedOrders}" FontSize="22" FontWeight="SemiBold" />
                         </StackPanel>
                         <StackPanel Margin="0,0,14,0">

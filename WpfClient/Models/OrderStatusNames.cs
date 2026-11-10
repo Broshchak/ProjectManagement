@@ -2,10 +2,19 @@ namespace WpfClient.Models;
 
 public static class OrderStatusNames
 {
-    public const string All = "Усі";
-
-    public static string ToText(string? status)
+    public static string ToText(string? status, string? name = null)
     {
+        if (!string.IsNullOrWhiteSpace(name) && name != (status switch
+        {
+            "NewOrder" => "New order",
+            "Registered" => "Registered order",
+            "Granted" => "Granted order",
+            "Shipped" => "Shipped order",
+            "Invoiced" => "Invoiced order",
+            "Cancelled" => "Cancelled order",
+            _ => null
+        })) return name;
+
         return status switch
         {
             "NewOrder" => LocalizationManager.Instance["NewOrder"],
@@ -18,22 +27,12 @@ public static class OrderStatusNames
         };
     }
 
-    public static string? ToCode(string statusText)
+    public static string Category(string status) => status switch
     {
-        if (statusText == LocalizationManager.Instance["All"] || statusText == All)
-        {
-            return null;
-        }
-
-        return statusText switch
-        {
-            "Нове" or "New" => "NewOrder",
-            "Зареєстроване" or "Registered" => "Registered",
-            "Погоджене" or "Approved" => "Granted",
-            "Відправлене" or "Shipped" => "Shipped",
-            "Оплачене" or "Invoiced" => "Invoiced",
-            "Скасоване" or "Cancelled" => "Cancelled",
-            _ => statusText
-        };
-    }
+        "NewOrder" => "New",
+        "Shipped" => "Shipped",
+        "Invoiced" => "Completed",
+        "Cancelled" => "Cancelled",
+        _ => "InProgress"
+    };
 }

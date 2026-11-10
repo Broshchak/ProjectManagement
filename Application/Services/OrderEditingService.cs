@@ -7,7 +7,7 @@ using Domain.Entities;
 namespace Application.Services;
 
 public sealed class OrderEditingService(IOrderRepository repository, IProductRepository products,
-    IUnitOfWork unitOfWork, IOrderService orders) : IOrderEditingService
+    IUnitOfWork unitOfWork, IOrderWorkflowRepository workflows) : IOrderEditingService
 {
     public Task<OrderDetailDto?> UpdateAsync(int id, UpdateOrderDto request, CancellationToken ct) =>
         Locked(id, async order => await Update(order, request, ct), ct);
@@ -30,12 +30,10 @@ public sealed class OrderEditingService(IOrderRepository repository, IProductRep
                 current.Items.Where(i => i.Id != itemId).Select(i => new UpdateOrderItemDto(i.Id, i.ProductId, i.Quantity)).ToList()), ct);
         }, ct);
 
-    public Task<OrderDetailDto?> ChangeStatusAsync(int id, ChangeOrderStatusDto request, int userId, CancellationToken ct) =>
-        Locked(id, _ => orders.ChangeOrderStatusAsync(id, request, userId, ct), ct);
-
     private Task<OrderDetailDto?> Locked(int id, Func<OrderEntity, Task<OrderDetailDto?>> action, CancellationToken ct) =>
         unitOfWork.InTransactionAsync(async token =>
         {
+            await workflows.LockAsync(false, token);
             var order = await repository.GetForUpdateAsync(id, token);
             return order is null ? null : await action(order);
         }, ct);
@@ -45,8 +43,8 @@ public sealed class OrderEditingService(IOrderRepository repository, IProductRep
         var current = (await repository.GetDetailByIdAsync(order.Id, ct))!;
         if (!string.Equals(current.Version, request.ExpectedVersion, StringComparison.Ordinal))
             throw new DataConflictException("Order has changed. Reload it before saving.");
-        if (current.IsStatusFinal || current.StatusCode is not ("NewOrder" or "Registered"))
-            throw new ValidationException("Only new and registered orders can be edited.");
+        if (current.IsStatusFinal || !current.CanEditItems)
+            throw new ValidationException("This order state does not allow editing.");
         if (request.Items is null || request.Items.Count == 0 || request.Items.Any(i => i.Id < 0 || i.ProductId <= 0 || i.Quantity <= 0))
             throw new ValidationException("An order must contain at least one item with a positive quantity.");
         if (request.Items.GroupBy(i => i.ProductId).Any(g => g.Count() > 1) ||

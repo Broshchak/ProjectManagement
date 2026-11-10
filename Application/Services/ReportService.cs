@@ -14,11 +14,11 @@ public sealed class ReportService(IReportQueries queries) : IReportService
         var topProduct = products.OrderByDescending(p => p.Quantity).FirstOrDefault();
         var lowStock = await queries.GetLowStockAsync(LowStockLimit, ct);
         return new OrderReportDto(orders.Count,
-            orders.Count(o => o.StatusCode == "NewOrder"),
-            orders.Count(o => o.StatusCode is "Registered" or "Granted"),
-            orders.Count(o => o.StatusCode == "Shipped"),
-            orders.Count(o => o.StatusCode == "Invoiced"),
-            orders.Count(o => o.StatusCode == "Cancelled"),
+            orders.Count(o => o.StatusCategory == "New"),
+            orders.Count(o => o.StatusCategory == "InProgress"),
+            orders.Count(o => o.StatusCategory == "Shipped"),
+            orders.Count(o => o.StatusCategory == "Completed"),
+            orders.Count(o => o.StatusCategory == "Cancelled"),
             orders.Sum(o => o.TotalAmount), orders.Count == 0 ? 0 : orders.Average(o => o.TotalAmount),
             lowStock.Count, topProduct?.ProductName ?? "-", topProduct?.Quantity ?? 0);
     }
@@ -45,7 +45,7 @@ public sealed class ReportService(IReportQueries queries) : IReportService
         string text = $"Звіт для керівника\n{period}\n" +
             $"Замовлень: {report.TotalOrders}\nЗагальна сума: {report.TotalAmount:N2} грн\n" +
             $"Середній чек: {report.AverageOrderAmount:N2} грн\n" +
-            $"Нові: {report.NewOrders}, в роботі: {report.OrdersInProgress}, відвантажені: {report.ShippedOrders}, рахунки: {report.InvoicedOrders}, скасовані: {report.CancelledOrders}\n" +
+            $"Нові: {report.NewOrders}, в роботі: {report.OrdersInProgress}, відвантажені: {report.ShippedOrders}, завершені: {report.InvoicedOrders}, скасовані: {report.CancelledOrders}\n" +
             $"Топ-товар: {(report.TopProductQuantity == 0 ? "немає даних" : $"{report.TopProductName} ({report.TopProductQuantity} од.)")}\n" +
             $"Товарів з низьким залишком: {report.LowStockProducts}";
         return new ManagerSummaryReportDto(DateTime.Now, text);
